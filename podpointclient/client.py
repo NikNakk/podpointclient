@@ -5,11 +5,29 @@ from datetime import datetime, timedelta
 
 import aiohttp
 
-from .endpoints import API_BASE_URL, CHARGE_SCHEDULES, PODS, UNITS, USERS, CHARGES, FIRMWARE, AUTH, CHARGE_OVERRIDE, CHARGERS, CONNECTIVITY_STATUS, MOBILE_API_BASE_URL
+from .endpoints import (
+    ACCESS_STATUS, AGREEMENTS, API_BASE_URL, AUTH, CHARGE_OVERRIDE,
+    CHARGE_SCHEDULES, CHARGERS, CHARGES, CONNECTIVITY_STATUS,
+    CONNECTIVITY_STATUS_V2, FIRMWARE, MANUAL_SCHEDULES, MOBILE_API_BASE_URL,
+    PODS, SECURITY_LOGS, SUBSCRIPTIONS, TARIFFS, UNITS, USERS
+)
 from .helpers.auth import Auth
 from .helpers.functions import auth_headers
 from .helpers.api_wrapper import APIWrapper
-from .factories import PodFactory, ScheduleFactory, ChargeFactory, FirmwareFactory, UserFactory, ChargeOverrideFactory, ConnectivityStatusFactory
+from .factories import (
+    ChargeFactory, ChargeOverrideFactory, ChargerFactory,
+    ChargerSubscriptionFactory, ConnectivityStatusFactory,
+    ConnectivityStatusV2Factory, FirmwareFactory, ManualScheduleFactory,
+    PodFactory, ScheduleFactory, SecurityLogFactory, TariffFactory,
+    UserAccessStatusFactory, UserAgreementsFactory, UserFactory
+)
+from .charger import Charger
+from .charger_subscription import ChargerSubscription
+from .connectivity_status_v2 import ConnectivityStatusV2
+from .manual_schedule import ManualSchedule
+from .security_log import SecurityLogPage
+from .tariff import Tariff
+from .user_access import UserAccessStatus, UserAgreements
 from .pod import Pod, Firmware
 from .charge import Charge
 from .charge_mode import ChargeMode
@@ -35,14 +53,14 @@ class PodPointClient:
         self,
         username: str,
         password: str,
-        session: aiohttp.ClientSession = aiohttp.ClientSession(),
+        session: aiohttp.ClientSession = None,
         include_timestamp: bool = False,
         http_debug: bool = None
     ) -> None:
         """Pod Point API Client."""
         self.email = username
         self.password = password
-        self._session = session
+        self._session = session if session is not None else aiohttp.ClientSession()
         self._http_debug = http_debug if http_debug is not None else False
         self.auth = Auth(
             email=self.email,
@@ -279,6 +297,126 @@ class PodPointClient:
         json = await self._handle_json_response(response=response)
 
         return ConnectivityStatusFactory().build_connectivity_status(connectivity_status_response=json)
+
+    async def async_get_chargers(self) -> List[Charger]:
+        """Get chargers from the newer API."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=CHARGERS, base=MOBILE_API_BASE_URL),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargerFactory().build_chargers(charger_response=json)
+
+    async def async_get_charger(self, ppid: str) -> Union[None, Charger]:
+        """Get a charger by PPID from the newer API."""
+        chargers = await self.async_get_chargers()
+        return next((charger for charger in chargers if charger.ppid == ppid), None)
+
+    async def async_get_connectivity_status_v2(
+        self,
+        charger: Charger
+    ) -> ConnectivityStatusV2:
+        """Get compact connectivity information for a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{CONNECTIVITY_STATUS_V2}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ConnectivityStatusV2Factory().build_connectivity_status(json)
+
+    async def async_get_tariffs(self, charger: Charger) -> List[Tariff]:
+        """Get tariffs associated with a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{TARIFFS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return TariffFactory().build_tariffs(json)
+
+    async def async_get_manual_schedules(self, charger: Charger) -> List[ManualSchedule]:
+        """Get manual schedules associated with a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{MANUAL_SCHEDULES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ManualScheduleFactory().build_schedules(json)
+
+    async def async_get_security_logs(self, charger: Charger) -> SecurityLogPage:
+        """Get security logs associated with a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{SECURITY_LOGS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return SecurityLogFactory().build_security_logs(json)
+
+    async def async_get_charger_subscriptions(
+        self,
+        charger: Charger
+    ) -> List[ChargerSubscription]:
+        """Get subscriptions associated with a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{SUBSCRIPTIONS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargerSubscriptionFactory().build_subscriptions(json)
+
+    async def async_get_user_access_status(self) -> List[UserAccessStatus]:
+        """Get the current user's charger access statuses."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{USERS}{ACCESS_STATUS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return UserAccessStatusFactory().build_access_statuses(json)
+
+    async def async_get_user_agreements(self) -> UserAgreements:
+        """Get the current user's accepted agreement versions."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{USERS}{AGREEMENTS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return UserAgreementsFactory().build_agreements(json)
 
     async def async_set_charge_override(self, pod:Pod, hours:int=0, minutes:int=0, seconds:int=0) -> ChargeOverride:
         await self.auth.async_update_access_token()

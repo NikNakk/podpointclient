@@ -6,6 +6,13 @@ from .schedule import Schedule, ScheduleStatus
 from .charge import Charge
 from .charge_override import ChargeOverride
 from .connectivity_status import ConnectivityStatus
+from .charger import Charger
+from .charger_subscription import ChargerSubscription
+from .connectivity_status_v2 import ConnectivityStatusV2
+from .manual_schedule import ManualSchedule
+from .security_log import SecurityLogPage
+from .tariff import Tariff
+from .user_access import UserAccessStatus, UserAgreements
 
 class PodFactory:
     """Factory for creating Pod objects"""
@@ -106,3 +113,80 @@ class ConnectivityStatusFactory:
             return None
 
         return ConnectivityStatus(data=connectivity_status_response)
+
+
+class ChargerFactory:
+    """Factory for creating chargers."""
+
+    def build_chargers(self, charger_response: List[Dict[str, Any]]) -> List[Charger]:
+        """Build chargers from a newer API response."""
+        if not isinstance(charger_response, list):
+            return []
+        return [Charger(data=data) for data in charger_response]
+
+
+class ConnectivityStatusV2Factory:
+    """Factory for creating newer connectivity status objects."""
+
+    def build_connectivity_status(self, response: Dict[str, Any]):
+        """Build a connectivity status, returning None for no response."""
+        if response is None:
+            return None
+        return ConnectivityStatusV2(data=response)
+
+
+class TariffFactory:
+    """Factory for creating charger tariffs."""
+
+    def build_tariffs(self, tariff_response: Dict[str, Any]) -> List[Tariff]:
+        """Build tariffs from a newer API response."""
+        data = tariff_response.get("data", []) if tariff_response else []
+        return [Tariff(item) for item in data]
+
+
+class ManualScheduleFactory:
+    """Factory for creating manual schedules."""
+
+    def build_schedules(self, schedule_response: Dict[str, Any]) -> List[ManualSchedule]:
+        """Build manual schedules from a newer API response."""
+        data = schedule_response.get("data", []) if schedule_response else []
+        return [ManualSchedule(item) for item in data]
+
+
+class SecurityLogFactory:
+    """Factory for creating a security log page."""
+
+    def build_security_logs(self, response: Dict[str, Any]):
+        """Build a security log page, returning None for no response."""
+        if response is None:
+            return None
+        return SecurityLogPage(response)
+
+
+class ChargerSubscriptionFactory:
+    """Factory for creating charger subscriptions."""
+
+    def build_subscriptions(self, response: Dict[str, Any]) -> List[ChargerSubscription]:
+        """Build charger subscriptions from a newer API response."""
+        data = response.get("subscriptions", []) if response else []
+        return [ChargerSubscription(item) for item in data]
+
+
+class UserAccessStatusFactory:
+    """Factory for creating user access statuses."""
+
+    def build_access_statuses(self, response: List[Dict[str, Any]]) -> List[UserAccessStatus]:
+        """Build access statuses from a newer API response."""
+        if not isinstance(response, list):
+            return []
+        return [UserAccessStatus(item) for item in response]
+
+
+class UserAgreementsFactory:
+    """Factory for creating user agreements."""
+
+    def build_agreements(self, response: Dict[str, Any]):
+        """Build user agreements, returning None for no response."""
+        if response is None:
+            return None
+        return UserAgreements(response)

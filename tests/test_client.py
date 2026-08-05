@@ -1,5 +1,3 @@
-import imp
-
 from aioresponses import aioresponses
 import aiohttp
 from podpointclient.client import PodPointClient
@@ -42,7 +40,7 @@ async def test_async_credentials_verified():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=&perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=True)
@@ -70,7 +68,7 @@ async def test_async_credentials_verified_returns_false_if_no_pods():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=&perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=True)
@@ -96,7 +94,7 @@ async def test_async_credentials_verified_returns_false_if_body_unexpected():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=&perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?perpage=1&page=1&timestamp=1640995200.0', payload=pods_response)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=True)
@@ -126,7 +124,7 @@ async def test_async_get_pods_response():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=5&page=1&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=5&page=1&timestamp=1640995200.0', payload=pods_response)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=True)
@@ -157,7 +155,7 @@ async def test_async_get_pods_response_without_timestamp():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=5&page=1', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=5&page=1', payload=pods_response)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=False)
@@ -199,9 +197,9 @@ async def test_async_get_all_pods_response():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=5&page=1', payload=pods_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=5&page=2', payload=pods_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=5&page=3', payload=pods_response_short)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=5&page=1', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=5&page=2', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=5&page=3', payload=pods_response_short)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=False)
@@ -244,8 +242,8 @@ async def test_async_get_all_pods_response_with_includes_overridden_and_timestam
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=foo%252Cbar&perpage=5&page=1&timestamp=1640995200.0', payload=pods_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=foo%252Cbar&perpage=5&page=2&timestamp=1640995200.0', payload=pods_response_short)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=foo,bar&perpage=5&page=1&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=foo,bar&perpage=5&page=2&timestamp=1640995200.0', payload=pods_response_short)
 
         async with aiohttp.ClientSession() as session:
             client = PodPointClient(username="1233", password="1234", session=session, include_timestamp=True)
@@ -323,7 +321,7 @@ async def test_async_set_schedules_response():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=all&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=all&timestamp=1640995200.0', payload=pods_response)
         m.put(f'{API_BASE_URL}{UNITS}/198765{CHARGE_SCHEDULES}?timestamp=1640995200.0', status=201, payload=schedules_response)
         m.put(f'{API_BASE_URL}{UNITS}/198765{CHARGE_SCHEDULES}?timestamp=1640995200.0', status=200, payload=schedules_response)
 
@@ -592,7 +590,7 @@ async def test_async_set_schedules_response():
     with aioresponses() as m:
         m.post(f'{GOOGLE_BASE_URL}{PASSWORD_VERIFY}', payload=auth_response)
         m.post(f'{API_BASE_URL}{SESSIONS}', payload=session_response)
-        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses%252Cprice%252Cmodel%252Cunit_connectors%252Ccharge_schedules%252Ccharge_override&perpage=all&timestamp=1640995200.0', payload=pods_response)
+        m.get(f'{API_BASE_URL}{USERS}/1234{PODS}?include=statuses,price,model,unit_connectors,charge_schedules,charge_override&perpage=all&timestamp=1640995200.0', payload=pods_response)
         m.put(f'{API_BASE_URL}{UNITS}/198765{CHARGE_SCHEDULES}?timestamp=1640995200.0', status=201, payload=schedules_response)
         m.put(f'{API_BASE_URL}{UNITS}/198765{CHARGE_SCHEDULES}?timestamp=1640995200.0', status=200, payload=schedules_response)
 

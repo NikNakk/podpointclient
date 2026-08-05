@@ -32,12 +32,20 @@ Method | Description
 `async_get_firmware(pod=_Pod_)` | *Get firmware information for a pod* - Returns a list of `Firmware` objects.
 `async_get_user(includes=[])` | *Get current user account information* - Returns a `User` object including account balance, units and vehicles. `includes` is a list of additional information pulled for a User. Pass an empty list to `includes` for minimal information or `None` for full data (defaults to `None`)
 `async_get_charge_override(pod=_Pod_)` | *Get the current charge override for a pod* - Returns a `ChargeOverride` object.
-`async_set_charge_override(pod=_Pod_, enabled=False, start_time=None, end_time=None)` | *Set a charge override for a pod* - Returns a `ChargeOverride` object.
+`async_set_charge_override(pod=_Pod_, hours=0, minutes=0, seconds=0)` | *Set a timed charge override for a pod* - Returns a `ChargeOverride` object.
 `async_delete_charge_override(pod=_Pod_)` | *Delete a charge override for a pod* - Returns a boolean.
-`async_set_charge_mode_manual(pod=_Pod_)` | *Set a pod to manual charge mode* - Returns a `Pod` object.
-`async_set_charge_mode_smart(pod=_Pod_)` | *Set a pod to smart charge mode* - Returns a `Pod` object.
-`async_get_charge_mode(pod=_Pod_)` | *Get the current charge mode for a pod* - Returns a `ChargeMode` object.
-`async_get_connection_status(pod=_Pod_)` | *Get the current connection status for a pod* - Returns a `ConnectionStatus` object.
+`async_set_charge_mode_manual(pod=_Pod_)` | *Set a pod to manual charge mode* - Returns a boolean.
+`async_set_charge_mode_smart(pod=_Pod_)` | *Set a pod to smart charge mode* - Returns a boolean.
+`async_get_connectivity_status(pod=_Pod_)` | *Get the current connection status for a pod* - Returns a `ConnectivityStatus` object.
+`async_get_chargers()` | *Get chargers from the newer charger API* - Returns a list of `Charger` objects.
+`async_get_charger(ppid="ABC-123456")` | *Get a charger by PPID* - Returns a `Charger` object or `None`.
+`async_get_connectivity_status_v2(charger=_Charger_)` | *Get compact connectivity and charging state for a charger* - Returns a `ConnectivityStatusV2` object.
+`async_get_tariffs(charger=_Charger_)` | *Get tariffs associated with a charger* - Returns a list of `Tariff` objects.
+`async_get_manual_schedules(charger=_Charger_)` | *Get manual charging schedules associated with a charger* - Returns a list of `ManualSchedule` objects.
+`async_get_security_logs(charger=_Charger_)` | *Get charger security logs and pagination information* - Returns a `SecurityLogPage` object.
+`async_get_charger_subscriptions(charger=_Charger_)` | *Get subscriptions associated with a charger* - Returns a list of `ChargerSubscription` objects.
+`async_get_user_access_status()` | *Get the current user's charger access statuses* - Returns a list of `UserAccessStatus` objects.
+`async_get_user_agreements()` | *Get the current user's accepted agreement versions* - Returns a `UserAgreements` object.
 
 ### Example
 

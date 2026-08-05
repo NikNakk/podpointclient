@@ -1,0 +1,97 @@
+{
+  "chargers": [
+    {
+      "ppid": "TEST-PPID-1",
+      "unitId": 1001,
+      "timezone": "Europe/London",
+      "linkedAt": "2025-01-01T00:00:00Z",
+      "delegatedControl": {"status": "ENABLED"},
+      "modelInfo": {
+        "ledColourSet": "RGB",
+        "colour": "WHITE",
+        "architecture": "arch5",
+        "style": "SOCKETED"
+      },
+      "subscription": {
+        "id": "SUBSCRIPTION-1",
+        "status": "ACTIVE",
+        "isSubscriptionOwner": true
+      }
+    }
+  ],
+  "connectivity_status_v2": {
+    "connectionState": "ONLINE",
+    "connectionQuality": 3,
+    "chargingState": "AVAILABLE",
+    "lastSeenAt": "2025-01-01T00:00:00Z"
+  },
+  "tariffs": {
+    "data": [
+      {
+        "id": "TARIFF-1",
+        "ppid": "TEST-PPID-1",
+        "supplierId": "SUPPLIER-1",
+        "tariffInfo": [
+          {
+            "days": ["MONDAY", "TUESDAY"],
+            "start": "00:00",
+            "end": "07:00",
+            "price": 0.1
+          }
+        ],
+        "timezone": "Europe/London",
+        "cheapestUnitPrice": 0.1,
+        "effectiveFrom": "2025-01-01T00:00:00Z",
+        "smartChargingSupported": true,
+        "maxChargePrice": 0.2
+      }
+    ],
+    "metadata": {"criteria": {"ppid": "TEST-PPID-1"}}
+  },
+  "manual_schedules": {
+    "data": [
+      {
+        "uid": "SCHEDULE-1",
+        "startDay": 1,
+        "startTime": "00:30",
+        "endDay": 1,
+        "endTime": "04:30",
+        "status": {}
+      }
+    ]
+  },
+  "security_logs": {
+    "data": [],
+    "meta": {
+      "pagination": {
+        "currentPage": 1,
+        "itemCount": 0,
+        "perPage": 20,
+        "pageCount": 0,
+        "updateId": 1
+      }
+    }
+  },
+  "charger_subscriptions": {
+    "subscriptions": [
+      {
+        "id": "SUBSCRIPTION-1",
+        "order": {"origin": "APP"},
+        "plan": {"type": "HOME"},
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "access_status": [
+    {
+      "subscriptionId": "SUBSCRIPTION-1",
+      "status": "ACTIVE",
+      "ppid": "TEST-PPID-1"
+    }
+  ],
+  "agreements": {
+    "MOBILE_APP_TERMS_V1": "2025-01-01T00:00:00Z",
+    "POD_REWARDS_TERMS_V1": "2025-01-01T00:00:00Z",
+    "PRIVACY_NOTICE_V1": "2025-01-01T00:00:00Z"
+  }
+}

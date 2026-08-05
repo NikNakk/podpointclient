@@ -1,5 +1,3 @@
-import imp
-
 from aioresponses import aioresponses
 import aiohttp
 from podpointclient.user import User, Address, Image, Vehicle, VehicleMake, Unit
