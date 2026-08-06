@@ -24,3 +24,7 @@ class ChargeOverrideValidationError(Exception):
     """An error relating to connecting to pod point"""
     def __init__(self):
         super().__init__(f'A validate error occured when processing charge override. Please ensure that an hour, minute or second value is passed and that it is > 0.')
+
+
+class RequestValidationError(ValueError):
+    """Raised before sending an invalid request to Pod Point."""

@@ -64,7 +64,7 @@ async def test_new_api_read_methods():
             payload=fixture["manual_schedules"],
         )
         mocked.get(
-            f"{MOBILE_API_BASE_URL}{CHARGERS}/{ppid}{SECURITY_LOGS}",
+            f"{MOBILE_API_BASE_URL}{CHARGERS}/{ppid}{SECURITY_LOGS}?pageNumber=1",
             payload=fixture["security_logs"],
         )
         mocked.get(

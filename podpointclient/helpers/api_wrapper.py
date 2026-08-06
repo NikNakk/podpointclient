@@ -73,6 +73,24 @@ class APIWrapper:
             exception_class=exception_class
         )
 
+    async def patch(
+        self,
+        url: str,
+        body: Any,
+        headers: Dict[str, Any],
+        params: Dict[str, Any] = None,
+        exception_class=APIError
+    ) -> aiohttp.ClientResponse:
+        """Make a PATCH request."""
+        return await self.__wrapper(
+            method="patch",
+            url=url,
+            params=params,
+            data=body,
+            headers=headers,
+            exception_class=exception_class
+        )
+
     async def delete(
         self,
         url: str,
@@ -139,6 +157,14 @@ class APIWrapper:
                             params=params,
                             json=data
                         )
+
+                elif method == "patch":
+                    response = await self._session.patch(
+                        url,
+                        headers=headers,
+                        params=params,
+                        json=data
+                    )
 
                 elif method == "delete":
                     response = await self._session.delete(url, headers=headers, params=params)

@@ -59,11 +59,21 @@ class Socket:
 class FirmwareVersion:
     """Representation of the Firmware Version object reported by PodPoint"""
     manifest_id: str
+    architecture: str = None
+    dsp_version: str = None
+    wifi_version: str = None
 
     @property
     def dict(self):
         """Dictionary conversion for FirmwareVersion"""
-        return { "manifest_id": self.manifest_id }
+        result = {"manifest_id": self.manifest_id}
+        optional_values = {
+            "architecture": self.architecture,
+            "dsp_version": self.dsp_version,
+            "wifi_version": self.wifi_version,
+        }
+        result.update({key: value for key, value in optional_values.items() if value is not None})
+        return result
 
     def to_json(self):
         """JSON representation of a FirmwareVersion object"""
@@ -88,20 +98,28 @@ class FirmwareStatus:
 class Firmware:
     """Representation of the pod's Firmware report"""
     def __init__(self, data: Dict[str, Any]):
-        self.serial_number: str            = data.get('serial_number', None)
+        self.serial_number: str = data.get('serial_number', data.get('serialNumber'))
         self.version_info: FirmwareVersion = None
         self.update_status: FirmwareStatus = None
 
-        firmware_version_data = data.get('version_info', None)
+        firmware_version_data = data.get('version_info', data.get('versionInfo'))
         if firmware_version_data:
+            details = firmware_version_data.get('details') or {}
             self.version_info = FirmwareVersion(
-                manifest_id=firmware_version_data.get('manifest_id', None)
+                manifest_id=firmware_version_data.get(
+                    'manifest_id', firmware_version_data.get('manifestId')
+                ),
+                architecture=firmware_version_data.get('architecture'),
+                dsp_version=details.get('dspVersion'),
+                wifi_version=details.get('wifiVersion')
             )
 
-        update_status_data = data.get('update_status', None)
+        update_status_data = data.get('update_status', data.get('updateStatus'))
         if update_status_data:
             self.update_status = FirmwareStatus(
-                is_update_available=update_status_data.get('is_update_available', None)
+                is_update_available=update_status_data.get(
+                    'is_update_available', update_status_data.get('isUpdateAvailable')
+                )
             )
 
     @property

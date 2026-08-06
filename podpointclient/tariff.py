@@ -1,16 +1,16 @@
 """Tariff models returned by the newer charger API."""
 import json
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, List
 
-from .helpers.functions import lazy_convert_to_datetime, lazy_iso_format_datetime
+from .helpers.functions import lazy_convert_to_datetime
 
 
 class TariffPeriod:
     """A time period and unit price within a tariff."""
 
     def __init__(self, data: Dict[str, Any]):
-        self.days: List[str] = data.get("days", [])
+        self.days: List[Any] = data.get("days", [])
         self.start: str = data.get("start", None)
         self.end: str = data.get("end", None)
         self.price: float = data.get("price", None)
@@ -35,7 +35,11 @@ class Tariff:
         self.tariff_info = [TariffPeriod(item) for item in data.get("tariffInfo", [])]
         self.timezone: str = data.get("timezone", None)
         self.cheapest_unit_price: float = data.get("cheapestUnitPrice", None)
-        self.effective_from: datetime = lazy_convert_to_datetime(data.get("effectiveFrom", None))
+        effective_from = data.get("effectiveFrom", None)
+        try:
+            self.effective_from = date.fromisoformat(effective_from)
+        except (TypeError, ValueError):
+            self.effective_from = lazy_convert_to_datetime(effective_from)
         self.smart_charging_supported: bool = data.get("smartChargingSupported", None)
         self.max_charge_price: float = data.get("maxChargePrice", None)
 
@@ -48,7 +52,11 @@ class Tariff:
             "tariffInfo": [item.dict for item in self.tariff_info],
             "timezone": self.timezone,
             "cheapestUnitPrice": self.cheapest_unit_price,
-            "effectiveFrom": lazy_iso_format_datetime(self.effective_from),
+            "effectiveFrom": (
+                self.effective_from.isoformat()
+                if isinstance(self.effective_from, (date, datetime))
+                else None
+            ),
             "smartChargingSupported": self.smart_charging_supported,
             "maxChargePrice": self.max_charge_price,
         }

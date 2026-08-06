@@ -1,24 +1,34 @@
 """PodPoint Basic API Client."""
 import logging
+import math
+import re
 from typing import Dict, Any, List, Union
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import aiohttp
+import pytz
 
 from .endpoints import (
     ACCESS_STATUS, AGREEMENTS, API_BASE_URL, AUTH, CHARGE_OVERRIDE,
+    CHARGE_OVERRIDES,
     CHARGE_SCHEDULES, CHARGERS, CHARGES, CONNECTIVITY_STATUS,
-    CONNECTIVITY_STATUS_V2, FIRMWARE, MANUAL_SCHEDULES, MOBILE_API_BASE_URL,
-    PODS, SECURITY_LOGS, SUBSCRIPTIONS, TARIFFS, UNITS, USERS
+    CONNECTIVITY_STATUS_V2, DELEGATED_CONTROLS, DELEGATED_VEHICLES,
+    ENERGY_SUPPLIERS, FIRMWARE, MANUAL_SCHEDULES, MOBILE_API_BASE_URL, PODS,
+    NOTIFICATION_PREFERENCES, PREFERENCES, REMOTE_LOCK, REWARD_WALLET,
+    SECURITY_LOGS, STATS, SUBSCRIPTIONS, TARIFFS, TRANSACTIONS, UNITS, USERS
 )
 from .helpers.auth import Auth
 from .helpers.functions import auth_headers
 from .helpers.api_wrapper import APIWrapper
 from .factories import (
-    ChargeFactory, ChargeOverrideFactory, ChargerFactory,
+    ChargeFactory, ChargeHistoryFactory, ChargeOverrideFactory, ChargerFactory,
+    ChargerChargeOverrideFactory,
     ChargerSubscriptionFactory, ConnectivityStatusFactory,
-    ConnectivityStatusV2Factory, FirmwareFactory, ManualScheduleFactory,
-    PodFactory, ScheduleFactory, SecurityLogFactory, TariffFactory,
+    ConnectivityStatusV2Factory, DelegatedChargerFactory,
+    DelegatedControlFactory, EnergySupplierFactory, FirmwareFactory,
+    ManualScheduleFactory, PodFactory, RemoteLockFactory, RewardWalletFactory,
+    PreferencesFactory, ScheduleFactory, SecurityLogFactory, SubscriptionFactory,
+    TariffFactory,
     UserAccessStatusFactory, UserAgreementsFactory, UserFactory
 )
 from .charger import Charger
@@ -26,8 +36,18 @@ from .charger_subscription import ChargerSubscription
 from .connectivity_status_v2 import ConnectivityStatusV2
 from .manual_schedule import ManualSchedule
 from .security_log import SecurityLogPage
-from .tariff import Tariff
+from .tariff import Tariff, TariffPeriod
 from .user_access import UserAccessStatus, UserAgreements
+from .energy_supplier import EnergySupplier
+from .remote_lock import RemoteLock
+from .reward_wallet import RewardTransactionPage, RewardWallet
+from .smart_charging import (
+    DelegatedCharger, DelegatedControl, VehicleIntent, VehicleIntentDetail
+)
+from .subscription import Subscription
+from .charger_charge_override import ChargerChargeOverride
+from .charge_history import ChargeHistory, ChargeStats
+from .preferences import NotificationPreferences, SmartChargingPreferences
 from .pod import Pod, Firmware
 from .charge import Charge
 from .charge_mode import ChargeMode
@@ -35,7 +55,7 @@ from .charge_override import ChargeOverride
 from .connectivity_status import ConnectivityStatus
 from .schedule import Schedule
 from .user import User
-from .errors import ChargeOverrideValidationError
+from .errors import ChargeOverrideValidationError, RequestValidationError
 
 TIMEOUT = 10
 
@@ -45,6 +65,13 @@ HEADERS = {"Content-type": "application/json; charset=UTF-8"}
 DEFAULT_POD_INCLUDES = ["statuses", "price", "model",
                     "unit_connectors", "charge_schedules", "charge_override"]
 DEFAULT_USER_INCLUDES = ["account", "vehicle", "vehicle.make", "unit.pod.unit_connectors", "unit.pod.statuses", "unit.pod.model", "unit.pod.charge_schedules", "unit.pod.charge_override"]
+DEFAULT_REWARD_TRANSACTION_INCLUDES = [
+    "MILES_CHARGED", "PAYOUT", "PAYOUT_REFUNDED", "BONUS_MILES"
+]
+VALID_WEEKDAYS = {
+    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"
+}
+VALID_STATS_INTERVALS = {"day", "week", "month", "year"}
 
 class PodPointClient:
     """API Client for communicating with Pod Point."""
@@ -359,7 +386,11 @@ class PodPointClient:
         json = await self._handle_json_response(response=response)
         return ManualScheduleFactory().build_schedules(json)
 
-    async def async_get_security_logs(self, charger: Charger) -> SecurityLogPage:
+    async def async_get_security_logs(
+        self,
+        charger: Charger,
+        page_number: int = 1
+    ) -> SecurityLogPage:
         """Get security logs associated with a charger."""
         await self.auth.async_update_access_token()
 
@@ -368,6 +399,7 @@ class PodPointClient:
                 path=f"{CHARGERS}/{charger.ppid}{SECURITY_LOGS}",
                 base=MOBILE_API_BASE_URL
             ),
+            params={"pageNumber": page_number},
             headers=auth_headers(access_token=self.auth.access_token)
         )
         json = await self._handle_json_response(response=response)
@@ -417,6 +449,338 @@ class PodPointClient:
         )
         json = await self._handle_json_response(response=response)
         return UserAgreementsFactory().build_agreements(json)
+
+    async def async_get_delegated_vehicles(self) -> List[DelegatedCharger]:
+        """Get chargers and vehicles using delegated smart charging."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=DELEGATED_VEHICLES,
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return DelegatedChargerFactory().build_delegated_chargers(json)
+
+    async def async_get_delegated_control(
+        self,
+        charger: Charger
+    ) -> DelegatedControl:
+        """Get delegated smart-charging configuration for a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{DELEGATED_CONTROLS}/{charger.ppid}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return DelegatedControlFactory().build_delegated_control(json)
+
+    async def async_get_reward_wallet(self) -> RewardWallet:
+        """Get the current user's reward wallet."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=REWARD_WALLET, base=MOBILE_API_BASE_URL),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return RewardWalletFactory().build_wallet(json)
+
+    async def async_get_reward_transactions(
+        self,
+        includes: Union[List[str], None] = None
+    ) -> RewardTransactionPage:
+        """Get reward transactions of the requested event types."""
+        await self.auth.async_update_access_token()
+
+        if includes is None:
+            includes = DEFAULT_REWARD_TRANSACTION_INCLUDES
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{REWARD_WALLET}{TRANSACTIONS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            params=[("include", include) for include in includes],
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return RewardWalletFactory().build_transactions(json)
+
+    async def async_get_energy_suppliers(self) -> List[EnergySupplier]:
+        """Get the available energy suppliers and their default tariffs."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=ENERGY_SUPPLIERS, base=MOBILE_API_BASE_URL),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return EnergySupplierFactory().build_suppliers(json)
+
+    async def async_get_remote_lock(self, charger: Charger) -> RemoteLock:
+        """Get remote lock/off-mode state for a charger."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{REMOTE_LOCK}/{charger.ppid}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return RemoteLockFactory().build_remote_lock(json)
+
+    async def async_get_subscriptions(self) -> List[Subscription]:
+        """Get account subscriptions and their workflow state."""
+        await self.auth.async_update_access_token()
+
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=SUBSCRIPTIONS, base=MOBILE_API_BASE_URL),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return SubscriptionFactory().build_subscriptions(json)
+
+    async def async_get_charger_charge_overrides(
+        self,
+        charger: Charger,
+        active_only: bool = False
+    ) -> List[ChargerChargeOverride]:
+        """Get charger override history, optionally excluding deleted entries."""
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        overrides = ChargerChargeOverrideFactory().build_overrides(json)
+        return [item for item in overrides if item.active] if active_only else overrides
+
+    async def async_get_smart_charging_preferences(
+        self,
+        charger: Charger
+    ) -> SmartChargingPreferences:
+        """Get mutable smart-charging preferences for a charger."""
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=f"{DELEGATED_CONTROLS}/{charger.ppid}{PREFERENCES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return PreferencesFactory().build_smart_charging(json)
+
+    async def async_get_charge_history(
+        self,
+        from_date: date,
+        to_date: date
+    ) -> ChargeHistory:
+        """Get charger-centric charge history for an inclusive date range."""
+        from_value, to_value = self._validate_date_range(from_date, to_date)
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=CHARGES, base=MOBILE_API_BASE_URL),
+            params={"from": from_value, "to": to_value},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargeHistoryFactory().build_history(json)
+
+    async def async_get_charge_stats(
+        self,
+        from_date: date,
+        to_date: date,
+        interval: str = "month"
+    ) -> ChargeStats:
+        """Get aggregate and interval charge statistics for a date range."""
+        from_value, to_value = self._validate_date_range(from_date, to_date)
+        if interval not in VALID_STATS_INTERVALS:
+            raise RequestValidationError(
+                "interval must be one of: day, week, month, year"
+            )
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(path=f"{CHARGES}{STATS}", base=MOBILE_API_BASE_URL),
+            params={"from": from_value, "to": to_value, "interval": interval},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargeHistoryFactory().build_stats(json)
+
+    async def async_get_notification_preferences(self) -> NotificationPreferences:
+        """Get the current user's notification switches."""
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.get(
+            url=self._url_from_path(
+                path=NOTIFICATION_PREFERENCES,
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return PreferencesFactory().build_notifications(json)
+
+    async def async_create_charger_charge_override(
+        self,
+        charger: Charger,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0,
+        requested_at: datetime = None,
+        end_at: datetime = None
+    ) -> List[ChargerChargeOverride]:
+        """Create a charger override using a positive duration or explicit end time."""
+        values = (hours, minutes, seconds)
+        if any(type(value) is not int or value < 0 for value in values):
+            raise RequestValidationError("override duration values must be non-negative integers")
+        requested_at = requested_at or datetime.now(timezone.utc)
+        self._validate_aware_datetime(requested_at, "requested_at")
+        if end_at is not None and any(values):
+            raise RequestValidationError("pass either a duration or end_at, not both")
+        if end_at is None:
+            if not any(values):
+                raise RequestValidationError("override duration must be greater than zero")
+            end_at = requested_at + timedelta(
+                hours=hours, minutes=minutes, seconds=seconds
+            )
+        self._validate_aware_datetime(end_at, "end_at")
+        if end_at <= requested_at:
+            raise RequestValidationError("end_at must be later than requested_at")
+
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.post(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body={
+                "requestedAt": self._utc_iso(requested_at),
+                "endAt": self._utc_iso(end_at),
+            },
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargerChargeOverrideFactory().build_overrides(json)
+
+    async def async_delete_charger_charge_overrides(self, charger: Charger) -> bool:
+        """Delete active charger overrides."""
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.delete(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        return response.status == 200
+
+    async def async_set_vehicle_intents(
+        self,
+        charger: Charger,
+        vehicle_link_id: str,
+        intents: List[VehicleIntentDetail]
+    ) -> VehicleIntent:
+        """Replace recurring charging targets for a delegated vehicle link."""
+        if not isinstance(intents, list):
+            raise RequestValidationError("intents must be a list")
+        details = [
+            item.dict if isinstance(item, VehicleIntentDetail) else item
+            for item in intents
+        ]
+        self._validate_vehicle_intents(details)
+        if not vehicle_link_id:
+            raise RequestValidationError("vehicle_link_id is required")
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.put(
+            url=self._url_from_path(
+                path=(f"{DELEGATED_CONTROLS}/{charger.ppid}/vehicles/"
+                      f"{vehicle_link_id}/intents"),
+                base=MOBILE_API_BASE_URL
+            ),
+            body={"intentDetails": details},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return VehicleIntent(json)
+
+    async def async_set_smart_charging_max_price(
+        self,
+        charger: Charger,
+        max_price: float
+    ) -> bool:
+        """Set the maximum smart-charging unit price."""
+        if isinstance(max_price, bool) or not isinstance(max_price, (int, float)):
+            raise RequestValidationError("max_price must be a non-negative number")
+        if not math.isfinite(max_price) or max_price < 0:
+            raise RequestValidationError("max_price must be a non-negative number")
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.patch(
+            url=self._url_from_path(
+                path=f"{DELEGATED_CONTROLS}/{charger.ppid}{PREFERENCES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body={"maxPrice": max_price},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        return response.status == 204
+
+    async def async_set_tariff(
+        self,
+        charger: Charger,
+        supplier_id: str,
+        tariff_info: List[TariffPeriod],
+        effective_from: date,
+        timezone_name: str,
+        smart_charging_supported: bool = True
+    ) -> Tariff:
+        """Create or replace a charger tariff."""
+        effective_value = self._date_value(effective_from, "effective_from")
+        try:
+            pytz.timezone(timezone_name)
+        except (pytz.UnknownTimeZoneError, AttributeError, TypeError) as error:
+            raise RequestValidationError("timezone_name must be a valid IANA timezone") from error
+        if not isinstance(tariff_info, list):
+            raise RequestValidationError("tariff_info must be a list")
+        periods = [
+            item.dict if isinstance(item, TariffPeriod) else item
+            for item in tariff_info
+        ]
+        self._validate_tariff_periods(periods)
+        if not supplier_id:
+            raise RequestValidationError("supplier_id is required")
+        if type(smart_charging_supported) is not bool:
+            raise RequestValidationError("smart_charging_supported must be a boolean")
+
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.post(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{TARIFFS}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body={
+                "effectiveFrom": effective_value,
+                "supplierId": supplier_id,
+                "smartChargingSupported": smart_charging_supported,
+                "tariffInfo": periods,
+                "timezone": timezone_name,
+            },
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return Tariff(json)
 
     async def async_set_charge_override(self, pod:Pod, hours:int=0, minutes:int=0, seconds:int=0) -> ChargeOverride:
         await self.auth.async_update_access_token()
@@ -503,6 +867,92 @@ class PodPointClient:
         json = await self._handle_json_response(response=response)
 
         return ChargeOverrideFactory().build_charge_override(charge_override_response=json)
+
+    @staticmethod
+    def _validate_aware_datetime(value: datetime, name: str) -> None:
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            raise RequestValidationError(f"{name} must be a timezone-aware datetime")
+        if value.utcoffset() is None:
+            raise RequestValidationError(f"{name} must be a timezone-aware datetime")
+
+    @staticmethod
+    def _utc_iso(value: datetime) -> str:
+        return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    @staticmethod
+    def _date_value(value: date, name: str) -> str:
+        if isinstance(value, datetime):
+            value = value.date()
+        if not isinstance(value, date):
+            raise RequestValidationError(f"{name} must be a date")
+        return value.isoformat()
+
+    @classmethod
+    def _validate_date_range(cls, from_date: date, to_date: date):
+        from_value = cls._date_value(from_date, "from_date")
+        to_value = cls._date_value(to_date, "to_date")
+        if from_value > to_value:
+            raise RequestValidationError("from_date must not be later than to_date")
+        return from_value, to_value
+
+    @staticmethod
+    def _valid_time(value: Any) -> bool:
+        if not isinstance(value, str) or not re.match(r"^\d{2}:\d{2}:\d{2}$", value):
+            return False
+        try:
+            datetime.strptime(value, "%H:%M:%S")
+        except ValueError:
+            return False
+        return True
+
+    @classmethod
+    def _validate_vehicle_intents(cls, details: List[Dict[str, Any]]) -> None:
+        if not isinstance(details, list) or not details:
+            raise RequestValidationError("intents must contain at least one charge target")
+        seen_days = set()
+        for detail in details:
+            if not isinstance(detail, dict):
+                raise RequestValidationError("each intent must be a VehicleIntentDetail or dict")
+            day = detail.get("dayOfWeek")
+            charge_kwh = detail.get("chargeKWh")
+            if day not in VALID_WEEKDAYS or day in seen_days:
+                raise RequestValidationError("intent weekdays must be valid and unique")
+            if isinstance(charge_kwh, bool) or not isinstance(charge_kwh, (int, float)):
+                raise RequestValidationError("intent chargeKWh must be a positive number")
+            if not math.isfinite(charge_kwh) or charge_kwh <= 0:
+                raise RequestValidationError("intent chargeKWh must be a positive number")
+            if not cls._valid_time(detail.get("chargeByTime")):
+                raise RequestValidationError("intent chargeByTime must use HH:MM:SS")
+            seen_days.add(day)
+
+    @classmethod
+    def _validate_tariff_periods(cls, periods: List[Dict[str, Any]]) -> None:
+        if not isinstance(periods, list) or not periods:
+            raise RequestValidationError("tariff_info must contain at least one period")
+        for period in periods:
+            if not isinstance(period, dict):
+                raise RequestValidationError("each tariff period must be a TariffPeriod or dict")
+            days = period.get("days")
+            valid_days = (
+                isinstance(days, list) and bool(days) and len(days) == len(set(days))
+                and all(
+                    (isinstance(day, int) and not isinstance(day, bool) and 1 <= day <= 7)
+                    or (isinstance(day, str) and day in VALID_WEEKDAYS)
+                    for day in days
+                )
+            )
+            if not valid_days:
+                raise RequestValidationError("tariff days must be unique weekdays or integers 1-7")
+            if not cls._valid_time(period.get("start")) or not cls._valid_time(period.get("end")):
+                raise RequestValidationError("tariff start and end must use HH:MM:SS")
+            price = period.get("price")
+            if (
+                isinstance(price, bool)
+                or not isinstance(price, (int, float))
+                or not math.isfinite(price)
+                or price < 0
+            ):
+                raise RequestValidationError("tariff price must be a non-negative number")
 
 
     def _schedule_data(self, enabled: bool) -> Dict[str, Any]:

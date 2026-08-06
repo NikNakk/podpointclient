@@ -13,6 +13,14 @@ from .manual_schedule import ManualSchedule
 from .security_log import SecurityLogPage
 from .tariff import Tariff
 from .user_access import UserAccessStatus, UserAgreements
+from .energy_supplier import EnergySupplier
+from .remote_lock import RemoteLock
+from .reward_wallet import RewardTransactionPage, RewardWallet
+from .smart_charging import DelegatedCharger, DelegatedControl
+from .subscription import Subscription
+from .charger_charge_override import ChargerChargeOverride
+from .charge_history import ChargeHistory, ChargeStats
+from .preferences import NotificationPreferences, SmartChargingPreferences
 
 class PodFactory:
     """Factory for creating Pod objects"""
@@ -190,3 +198,105 @@ class UserAgreementsFactory:
         if response is None:
             return None
         return UserAgreements(response)
+
+
+class DelegatedChargerFactory:
+    """Factory for creating delegated chargers and their vehicles."""
+
+    def build_delegated_chargers(
+        self,
+        response: List[Dict[str, Any]]
+    ) -> List[DelegatedCharger]:
+        """Build delegated chargers from a newer API response."""
+        if not isinstance(response, list):
+            return []
+        return [DelegatedCharger(item) for item in response]
+
+
+class DelegatedControlFactory:
+    """Factory for creating delegated-control configuration."""
+
+    def build_delegated_control(self, response: Dict[str, Any]):
+        """Build delegated control, returning None for no response."""
+        if response is None:
+            return None
+        return DelegatedControl(response)
+
+
+class RewardWalletFactory:
+    """Factory for creating reward wallet models."""
+
+    def build_wallet(self, response: Dict[str, Any]):
+        """Build a reward wallet, returning None for no response."""
+        if response is None:
+            return None
+        return RewardWallet(response)
+
+    def build_transactions(self, response: Dict[str, Any]):
+        """Build a page of reward transactions."""
+        if response is None:
+            return None
+        return RewardTransactionPage(response)
+
+
+class EnergySupplierFactory:
+    """Factory for creating energy suppliers."""
+
+    def build_suppliers(self, response: List[Dict[str, Any]]) -> List[EnergySupplier]:
+        """Build energy suppliers from a newer API response."""
+        if not isinstance(response, list):
+            return []
+        return [EnergySupplier(item) for item in response]
+
+
+class RemoteLockFactory:
+    """Factory for creating remote-lock state."""
+
+    def build_remote_lock(self, response: Dict[str, Any]):
+        """Build remote-lock state, returning None for no response."""
+        if response is None:
+            return None
+        return RemoteLock(response)
+
+
+class SubscriptionFactory:
+    """Factory for creating account subscriptions."""
+
+    def build_subscriptions(self, response: Dict[str, Any]) -> List[Subscription]:
+        """Build account subscriptions from a newer API response."""
+        data = response.get("data", []) if response else []
+        return [Subscription(item) for item in data]
+
+
+class ChargerChargeOverrideFactory:
+    """Factory for charger-centric override history."""
+
+    def build_overrides(self, response: List[Dict[str, Any]]):
+        """Build charger override history from a newer API response."""
+        if not isinstance(response, list):
+            return []
+        return [ChargerChargeOverride(item) for item in response]
+
+
+class ChargeHistoryFactory:
+    """Factory for charger-centric charge history and statistics."""
+
+    def build_history(self, response: Dict[str, Any]):
+        """Build a charge-history response."""
+        return ChargeHistory(response) if response is not None else None
+
+    def build_stats(self, response: Dict[str, Any]):
+        """Build a charge-statistics response."""
+        return ChargeStats(response) if response is not None else None
+
+
+class PreferencesFactory:
+    """Factory for smart-charging and notification preferences."""
+
+    def build_smart_charging(self, response: Dict[str, Any]):
+        """Build smart-charging preferences."""
+        return SmartChargingPreferences(response) if response is not None else None
+
+    def build_notifications(self, response: Dict[str, Any]):
+        """Build user notification preferences."""
+        return NotificationPreferences(response) if response is not None else None

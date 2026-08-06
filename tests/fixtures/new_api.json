@@ -93,5 +93,184 @@
     "MOBILE_APP_TERMS_V1": "2025-01-01T00:00:00Z",
     "POD_REWARDS_TERMS_V1": "2025-01-01T00:00:00Z",
     "PRIVACY_NOTICE_V1": "2025-01-01T00:00:00Z"
+  },
+  "delegated_chargers": [
+    {
+      "ppid": "TEST-PPID-1",
+      "vehicles": [
+        {
+          "id": "VEHICLE-LINK-1",
+          "isPluggedInToThisCharger": true,
+          "vehicle": {
+            "id": "VEHICLE-1",
+            "lastSeen": "2025-01-01T00:00:00Z",
+            "enodeUserId": "ENODE-USER-1",
+            "enodeVehicleId": "ENODE-VEHICLE-1",
+            "refreshRequested": false,
+            "vehicleInformation": {
+              "brand": "TEST BRAND",
+              "model": "TEST MODEL",
+              "modelVariant": "TEST VARIANT",
+              "vehicleRegistrationPlate": null,
+              "colour": null,
+              "displayName": null,
+              "displayNameSource": null,
+              "evDatabaseId": "EV-1"
+            },
+            "chargeState": {
+              "batteryCapacity": 60.0,
+              "batteryLevelPercent": 50.0,
+              "chargeLimitPercent": 80.0,
+              "chargeLimitSource": "VEHICLE",
+              "chargeRate": null,
+              "chargeTimeRemaining": null,
+              "isCharging": false,
+              "isFullyCharged": false,
+              "isPluggedIn": true,
+              "lastUpdated": "2025-01-01T00:00:00Z",
+              "maxCurrent": null,
+              "powerDeliveryState": "STOPPED",
+              "range": 120.0,
+              "chargeLimitSettable": true
+            },
+            "odometer": {
+              "distanceKm": 10000.0,
+              "lastUpdated": "2025-01-01T00:00:00Z"
+            },
+            "interventions": {
+              "all": "NONE",
+              "information": [],
+              "chargeState": []
+            },
+            "learnedBatteryEfficiencyFactor": 0.9,
+            "efficiencySessionCount": 5
+          },
+          "intents": {
+            "id": "INTENT-1",
+            "details": [
+              {
+                "chargeKWh": 20.0,
+                "dayOfWeek": "MONDAY",
+                "chargeByTime": "07:00"
+              }
+            ],
+            "maxPrice": null,
+            "createdAt": "2025-01-01T00:00:00Z",
+            "updatedAt": "2025-01-01T00:00:00Z"
+          },
+          "currentIntent": null,
+          "isPrimary": true
+        }
+      ]
+    }
+  ],
+  "delegated_control": {
+    "id": "CONTROL-1",
+    "ppid": "TEST-PPID-1",
+    "status": "ACTIVE",
+    "statusEffectiveFrom": "2025-01-01T00:00:00Z",
+    "preferences": {"maxPrice": 0.2},
+    "createdAt": "2025-01-01T00:00:00Z",
+    "vehicleLinks": [],
+    "thirdPartyManagerProviderId": "PROVIDER-1",
+    "isDeletable": true
+  },
+  "reward_wallet": {
+    "allowance": {
+      "balanceMiles": 100.0,
+      "balanceGbp": 10.0,
+      "balancePoints": null,
+      "annualAllowanceMiles": 1000.0,
+      "allowancePoundsEstimated": 100.0,
+      "annualAllowancePoints": null
+    },
+    "rewards": {
+      "balanceMiles": 50.0,
+      "balanceGbp": 5.0,
+      "balancePoints": 500,
+      "yearToDateMiles": 25.0,
+      "yearToDateGbpEstimated": 2.5,
+      "yearToDatePoints": 250,
+      "startToDateMiles": 75.0,
+      "startToDateGbpEstimated": 7.5,
+      "startToDatePoints": 750
+    },
+    "payments": {
+      "thresholdGbp": 20.0,
+      "totalWithdrawnGbp": 0.0
+    }
+  },
+  "reward_transactions": {
+    "transactions": [
+      {
+        "type": "REWARD",
+        "timestamp": "2025-01-01T00:00:00Z",
+        "amount": 1.5,
+        "amountPoints": 150,
+        "chargeId": "CHARGE-1"
+      }
+    ],
+    "meta": {"lastKey": "CONTINUATION-1"}
+  },
+  "energy_suppliers": [
+    {
+      "id": "SUPPLIER-1",
+      "name": "TEST SUPPLIER",
+      "timeZone": "Europe/London",
+      "icon": "https://example.invalid/icon.png",
+      "defaultTariffInfo": [
+        {
+          "days": ["MONDAY"],
+          "start": "00:00",
+          "end": "07:00",
+          "price": 0.1
+        }
+      ],
+      "defaultMaxChargePrice": 0.2
+    }
+  ],
+  "remote_lock": {"offMode": null},
+  "subscriptions": {
+    "data": [
+      {
+        "id": "SUBSCRIPTION-1",
+        "status": "ACTIVE",
+        "actions": [
+          {
+            "id": "ACTION-1",
+            "subscriptionId": "SUBSCRIPTION-1",
+            "type": "SETUP",
+            "owner": "USER",
+            "status": "COMPLETE",
+            "dependsOn": [],
+            "data": {"ppid": "TEST-PPID-1"},
+            "createdAt": "2025-01-01T00:00:00Z",
+            "updatedAt": "2025-01-01T00:00:00Z",
+            "deletedAt": null
+          }
+        ],
+        "order": {
+          "id": "ORDER-1",
+          "origin": "APP",
+          "orderedAt": "2025-01-01T00:00:00Z",
+          "ppid": "TEST-PPID-1"
+        },
+        "plan": {
+          "id": "PLAN-1",
+          "type": "HOME",
+          "allowancePoundsEstimated": 100.0,
+          "allowancePoints": null,
+          "allowanceMiles": 1000.0,
+          "allowancePeriod": "ANNUAL",
+          "milesRenewalDate": "2026-01-01",
+          "ratePencePerMile": 10.0,
+          "rateMilesPerKwh": 3.0
+        },
+        "activatedAt": "2025-01-01T00:00:00Z",
+        "createdAt": "2025-01-01T00:00:00Z",
+        "updatedAt": "2025-01-01T00:00:00Z",
+        "deletedAt": null
+      }
+    ]
   }
 }

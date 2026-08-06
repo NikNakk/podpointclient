@@ -42,10 +42,31 @@ Method | Description
 `async_get_connectivity_status_v2(charger=_Charger_)` | *Get compact connectivity and charging state for a charger* - Returns a `ConnectivityStatusV2` object.
 `async_get_tariffs(charger=_Charger_)` | *Get tariffs associated with a charger* - Returns a list of `Tariff` objects.
 `async_get_manual_schedules(charger=_Charger_)` | *Get manual charging schedules associated with a charger* - Returns a list of `ManualSchedule` objects.
-`async_get_security_logs(charger=_Charger_)` | *Get charger security logs and pagination information* - Returns a `SecurityLogPage` object.
+`async_get_security_logs(charger=_Charger_, page_number=1)` | *Get charger security logs and pagination information* - Returns a `SecurityLogPage` object.
 `async_get_charger_subscriptions(charger=_Charger_)` | *Get subscriptions associated with a charger* - Returns a list of `ChargerSubscription` objects.
 `async_get_user_access_status()` | *Get the current user's charger access statuses* - Returns a list of `UserAccessStatus` objects.
 `async_get_user_agreements()` | *Get the current user's accepted agreement versions* - Returns a `UserAgreements` object.
+`async_get_delegated_vehicles()` | *Get chargers and vehicles using delegated smart charging* - Returns a list of `DelegatedCharger` objects.
+`async_get_delegated_control(charger=_Charger_)` | *Get delegated smart-charging configuration for a charger* - Returns a `DelegatedControl` object.
+`async_get_reward_wallet()` | *Get the current user's reward allowance, earnings, and payment totals* - Returns a `RewardWallet` object.
+`async_get_reward_transactions(includes=None)` | *Get reward wallet transactions, optionally filtered by event types* - Returns a `RewardTransactionPage` object.
+`async_get_energy_suppliers()` | *Get energy suppliers and their default tariff configuration* - Returns a list of `EnergySupplier` objects.
+`async_get_remote_lock(charger=_Charger_)` | *Get remote lock/off-mode state for a charger* - Returns a `RemoteLock` object.
+`async_get_subscriptions()` | *Get account subscriptions and their workflow state* - Returns a list of `Subscription` objects.
+`async_get_charger_charge_overrides(charger=_Charger_, active_only=False)` | *Get current and deleted charger override history* - Returns a list of `ChargerChargeOverride` objects.
+`async_get_smart_charging_preferences(charger=_Charger_)` | *Get mutable smart-charging preferences* - Returns a `SmartChargingPreferences` object.
+`async_get_charge_history(from_date, to_date)` | *Get newer charger-centric charge history for a date range* - Returns a `ChargeHistory` object.
+`async_get_charge_stats(from_date, to_date, interval="month")` | *Get aggregate and interval charge statistics* - Returns a `ChargeStats` object.
+`async_get_notification_preferences()` | *Get the current user's notification switches* - Returns a `NotificationPreferences` object.
+`async_create_charger_charge_override(charger, hours=0, minutes=0, seconds=0)` | *Create a timed charger override* - Returns a list of `ChargerChargeOverride` objects.
+`async_delete_charger_charge_overrides(charger)` | *Delete active charger overrides* - Returns a boolean.
+`async_set_vehicle_intents(charger, vehicle_link_id, intents)` | *Replace recurring delegated-vehicle charging targets* - Returns a `VehicleIntent` object.
+`async_set_smart_charging_max_price(charger, max_price)` | *Set the smart-charging maximum unit price* - Returns a boolean.
+`async_set_tariff(charger, supplier_id, tariff_info, effective_from, timezone_name)` | *Create or replace the charger's energy tariff* - Returns a `Tariff` object.
+
+The charger mutation methods validate their inputs before making a request. They
+raise `RequestValidationError` for invalid durations, dates, times, weekdays,
+prices, or timezone names.
 
 ### Example
 
