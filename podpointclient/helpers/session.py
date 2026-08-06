@@ -43,7 +43,7 @@ class Session:
             json = await response.json()
 
             if self._http_debug:
-                _LOGGER.debug(json)
+                _LOGGER.debug("Session response received")
 
             if json.get('sessions', None):
                 self.user_id = json['sessions']['user_id']

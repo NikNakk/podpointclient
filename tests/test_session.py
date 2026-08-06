@@ -44,7 +44,9 @@ async def test_session_401_error():
             with pytest.raises(SessionError) as exc_info:   
                 await session.create()
 
-            assert "Session Error (401) - bar error" in str(exc_info.value)
+            assert "Session Error (401) - Response body omitted for security" in str(
+                exc_info.value
+            )
 
 async def test_session_json_error():
     session_response = {
@@ -63,4 +65,3 @@ async def test_session_json_error():
                 await session.create()
 
             assert "Session Error (200) - Error processing session response. Unable to find key: 'id' within json." in str(exc_info.value)
-

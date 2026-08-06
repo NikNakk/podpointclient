@@ -8,6 +8,7 @@ import aiohttp
 import async_timeout
 
 from ..errors import APIError, AuthError, SessionError, ApiConnectionError
+from .redaction import RESPONSE_BODY_OMITTED, url_for_logging
 
 TIMEOUT=10
 HEADERS = {"Content-type": "application/json; charset=UTF-8"}
@@ -127,7 +128,8 @@ class APIWrapper:
         try:
             async with async_timeout.timeout(self._timeout):
                 start_time = time.time()
-                _LOGGER.debug("%s %s %s %s",method.upper(), url, params, data)
+                safe_url = url_for_logging(url)
+                _LOGGER.debug("%s %s", method.upper(), safe_url)
 
                 response = None
 
@@ -190,19 +192,18 @@ Received a None response when querying."
                 return response
 
         except asyncio.TimeoutError as exception:
-            message = f"Timeout error fetching information from {url} - {exception}"
+            message = f"Timeout fetching information from {url_for_logging(url)}"
             raise ApiConnectionError(message) from exception
 
         except (KeyError, TypeError) as exception:
             _LOGGER.error(
-                "Error parsing information from %s - %s",
-                url,
-                exception,
+                "Error parsing information from %s",
+                url_for_logging(url)
             )
             raise exception
 
         except (aiohttp.ClientError, gaierror) as exception:
-            message = f"Error connecting to Pod Point ({url}) - {exception}"
+            message = f"Unable to connect to {url_for_logging(url)}"
             raise ApiConnectionError(message) from exception
 
         except (AuthError, SessionError) as exception:
@@ -212,12 +213,15 @@ Received a None response when querying."
             )
             raise exception
 
+        except APIError as exception:
+            _LOGGER.error("Pod Point API request failed")
+            raise exception
+
         except Exception as exception:  # pylint: disable=broad-except
             _LOGGER.error("Something really wrong happened")
             raise exception
 
     async def __handle_response_error(self, response: aiohttp.ClientResponse, exception_class):
         status = response.status
-        response = await response.text()
-
-        raise exception_class(status, response)
+        await response.read()
+        raise exception_class(status, RESPONSE_BODY_OMITTED)

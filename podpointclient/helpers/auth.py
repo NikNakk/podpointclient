@@ -10,6 +10,7 @@ from .session import Session
 from ..endpoints import GOOGLE_BASE_URL, PASSWORD_VERIFY, GOOGLE_TOKEN_BASE_URL, TOKEN
 from .functions import HEADERS
 from .api_wrapper import APIWrapper
+from .redaction import RESPONSE_BODY_OMITTED, sanitize_for_logging
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
@@ -135,7 +136,18 @@ class Auth():
             return_value = True
 
             if self._http_debug:
-                _LOGGER.debug(json)
+                _LOGGER.debug(
+                    "Authentication response: %s",
+                    sanitize_for_logging(
+                        json,
+                        sensitive_values=(
+                            self.email,
+                            self.password,
+                            self.access_token,
+                            self.refresh_token,
+                        )
+                    )
+                )
         except AuthError as exception:
             raise exception
         except KeyError as exception:
@@ -146,8 +158,7 @@ class Auth():
         except (TypeError, ValueError) as exception:
             raise AuthError(
                 response.status,
-                f"Error processing access token response. \
-When calculating expiry date, got: {exception}."
+                "Error processing access token response. Invalid expiry value."
             ) from exception
         except APIError as exception:
             raise exception
@@ -156,9 +167,5 @@ When calculating expiry date, got: {exception}."
 
     async def __handle_response_error(self, response, error_class):
         status = response.status
-        response = await response.text()
-
-        if self._http_debug:
-            _LOGGER.debug(response)
-
-        raise error_class(status, response)
+        await response.read()
+        raise error_class(status, RESPONSE_BODY_OMITTED)

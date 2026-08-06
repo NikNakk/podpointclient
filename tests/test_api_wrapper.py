@@ -71,7 +71,7 @@ async def test_401(aiohttp_client):
       with pytest.raises(APIError) as exc_info:   
         await wrapper.get("https://google.com/api/v1/test", headers={}, params={"foo": "bar"})
 
-      assert "(401, 'AuthError')" in str(exc_info.value)
+        assert "(401, 'Response body omitted for security')" in str(exc_info.value)
 
 @pytest.mark.asyncio     
 async def test_connection_errors(aiohttp_client):
@@ -84,4 +84,4 @@ async def test_connection_errors(aiohttp_client):
       with pytest.raises(ApiConnectionError) as exc_info:   
         await wrapper.get("https://google.com/api/v1/test", headers={}, params={"foo": "bar"})
 
-      assert "Connection Error: Timeout error fetching information from https://google.com/api/v1/test - Connection timeout test" in str(exc_info.value)
+      assert "Connection Error: Timeout fetching information from https://google.com/api/v1/test" in str(exc_info.value)

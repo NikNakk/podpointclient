@@ -20,6 +20,7 @@ from .endpoints import (
 from .helpers.auth import Auth
 from .helpers.functions import auth_headers
 from .helpers.api_wrapper import APIWrapper
+from .helpers.redaction import sanitize_for_logging
 from .factories import (
     ChargeFactory, ChargeHistoryFactory, ChargeOverrideFactory, ChargerFactory,
     ChargerChargeOverrideFactory,
@@ -191,11 +192,10 @@ class PodPointClient:
         if response.status == 201:
             return True
 
-        text = await response.text()
+        await response.read()
         _LOGGER.warning(
-            "Expected to recieve 201 status code when creating schedules. Got (%s) - %s",
-            response.status,
-            text
+            "Expected to receive 201 status code when creating schedules. Got %s",
+            response.status
         )
         return False
 
@@ -1136,6 +1136,16 @@ class PodPointClient:
         json = await response.json()
 
         if self._http_debug:
-            _LOGGER.debug(json)
+            _LOGGER.debug(
+                sanitize_for_logging(
+                    json,
+                    sensitive_values=(
+                        self.email,
+                        self.password,
+                        self.auth.access_token,
+                        self.auth.refresh_token,
+                    )
+                )
+            )
 
         return json

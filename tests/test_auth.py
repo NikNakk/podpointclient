@@ -195,7 +195,9 @@ async def test_auth_401_error():
             with pytest.raises(AuthError) as exc_info:   
                 await auth.async_update_access_token()
 
-            assert "Auth Error (401) - foo error" in str(exc_info.value)
+            assert "Auth Error (401) - Response body omitted for security" in str(
+                exc_info.value
+            )
 
 async def test_auth_json_error():
     # MISSING id_token ELEMENT
@@ -237,7 +239,10 @@ async def test_auth_json_error():
             with pytest.raises(AuthError) as exc_info:   
                 await auth.async_update_access_token()
 
-            assert "Auth Error (200) - Error processing access token response. When calculating expiry date, got: invalid literal for int() with base 10: 'F14A3'." in str(exc_info.value)
+            assert (
+                "Auth Error (200) - Error processing access token response. "
+                "Invalid expiry value."
+            ) in str(exc_info.value)
 
 
 async def test_session_401_error():
@@ -260,7 +265,9 @@ async def test_session_401_error():
             with pytest.raises(SessionError) as exc_info:   
                 await auth.async_update_access_token()
 
-            assert "Session Error (401) - bar error" in str(exc_info.value)
+            assert "Session Error (401) - Response body omitted for security" in str(
+                exc_info.value
+            )
 
 async def test_session_json_error():
     refresh_response = {
