@@ -155,9 +155,14 @@ class TariffFactory:
 class ManualScheduleFactory:
     """Factory for creating manual schedules."""
 
-    def build_schedules(self, schedule_response: Dict[str, Any]) -> List[ManualSchedule]:
+    def build_schedules(self, schedule_response: Any) -> List[ManualSchedule]:
         """Build manual schedules from a newer API response."""
-        data = schedule_response.get("data", []) if schedule_response else []
+        if isinstance(schedule_response, list):
+            data = schedule_response
+        elif isinstance(schedule_response, dict):
+            data = schedule_response.get("data", [])
+        else:
+            data = []
         return [ManualSchedule(item) for item in data]
 
 

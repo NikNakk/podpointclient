@@ -42,6 +42,7 @@ Method | Description
 `async_get_connectivity_status_v2(charger=_Charger_)` | *Get compact connectivity and charging state for a charger* - Returns a `ConnectivityStatusV2` object.
 `async_get_tariffs(charger=_Charger_)` | *Get tariffs associated with a charger* - Returns a list of `Tariff` objects.
 `async_get_manual_schedules(charger=_Charger_)` | *Get manual charging schedules associated with a charger* - Returns a list of `ManualSchedule` objects.
+`async_set_manual_schedules(charger=_Charger_, schedules=[...])` | *Replace all seven manual charging schedules* - Returns the saved `ManualSchedule` objects.
 `async_get_security_logs(charger=_Charger_, page_number=1)` | *Get charger security logs and pagination information* - Returns a `SecurityLogPage` object.
 `async_get_charger_subscriptions(charger=_Charger_)` | *Get subscriptions associated with a charger* - Returns a list of `ChargerSubscription` objects.
 `async_get_user_access_status()` | *Get the current user's charger access statuses* - Returns a list of `UserAccessStatus` objects.
@@ -60,6 +61,9 @@ Method | Description
 `async_get_notification_preferences()` | *Get the current user's notification switches* - Returns a `NotificationPreferences` object.
 `async_create_charger_charge_override(charger, hours=0, minutes=0, seconds=0)` | *Create a timed charger override* - Returns a list of `ChargerChargeOverride` objects.
 `async_delete_charger_charge_overrides(charger)` | *Delete active charger overrides* - Returns a boolean.
+`async_set_charger_charge_mode_always_on(charger)` | *Disable smart charging, then enable basic charging indefinitely using an open-ended override* - Returns a list of `ChargerChargeOverride` objects.
+`async_set_charger_charge_mode_scheduled(charger)` | *Disable smart charging, end Always On, and return to configured manual schedules* - Returns a boolean.
+`async_set_charger_smart_charging(charger, enabled)` | *Enable or disable delegated smart charging explicitly* - Returns a boolean.
 `async_set_vehicle_intents(charger, vehicle_link_id, intents)` | *Replace recurring delegated-vehicle charging targets* - Returns a `VehicleIntent` object.
 `async_set_smart_charging_max_price(charger, max_price)` | *Set the smart-charging maximum unit price* - Returns a boolean.
 `async_set_tariff(charger, supplier_id, tariff_info, effective_from, timezone_name)` | *Create or replace the charger's energy tariff* - Returns a `Tariff` object.

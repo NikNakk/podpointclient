@@ -28,3 +28,7 @@ class ChargeOverrideValidationError(Exception):
 
 class RequestValidationError(ValueError):
     """Raised before sending an invalid request to Pod Point."""
+
+
+class ChargeModeTransitionError(APIError):
+    """Raised when a prerequisite charger-mode transition does not succeed."""

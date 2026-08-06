@@ -55,7 +55,10 @@ from .charge_override import ChargeOverride
 from .connectivity_status import ConnectivityStatus
 from .schedule import Schedule
 from .user import User
-from .errors import ChargeOverrideValidationError, RequestValidationError
+from .errors import (
+    ChargeModeTransitionError, ChargeOverrideValidationError,
+    RequestValidationError
+)
 
 TIMEOUT = 10
 
@@ -660,20 +663,32 @@ class PodPointClient:
         if end_at <= requested_at:
             raise RequestValidationError("end_at must be later than requested_at")
 
-        await self.auth.async_update_access_token()
-        response = await self.api_wrapper.post(
-            url=self._url_from_path(
-                path=f"{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}",
-                base=MOBILE_API_BASE_URL
-            ),
-            body={
-                "requestedAt": self._utc_iso(requested_at),
-                "endAt": self._utc_iso(end_at),
-            },
-            headers=auth_headers(access_token=self.auth.access_token)
+        return await self._async_create_charger_charge_override(
+            charger=charger,
+            requested_at=requested_at,
+            end_at=end_at
         )
-        json = await self._handle_json_response(response=response)
-        return ChargerChargeOverrideFactory().build_overrides(json)
+
+    async def async_set_charger_charge_mode_always_on(
+        self,
+        charger: Charger,
+        requested_at: datetime = None
+    ) -> List[ChargerChargeOverride]:
+        """Enable basic charging indefinitely by creating an open-ended override."""
+        requested_at = requested_at or datetime.now(timezone.utc)
+        self._validate_aware_datetime(requested_at, "requested_at")
+        disabled = await self.async_set_charger_smart_charging(
+            charger,
+            enabled=False
+        )
+        if not disabled:
+            raise ChargeModeTransitionError(
+                "Smart charging could not be disabled; Always On was not requested"
+            )
+        return await self._async_create_charger_charge_override(
+            charger=charger,
+            requested_at=requested_at
+        )
 
     async def async_delete_charger_charge_overrides(self, charger: Charger) -> bool:
         """Delete active charger overrides."""
@@ -686,6 +701,65 @@ class PodPointClient:
             headers=auth_headers(access_token=self.auth.access_token)
         )
         return response.status == 200
+
+    async def async_set_charger_charge_mode_scheduled(
+        self,
+        charger: Charger
+    ) -> bool:
+        """Return basic charging to its configured manual schedules."""
+        disabled = await self.async_set_charger_smart_charging(
+            charger,
+            enabled=False
+        )
+        if not disabled:
+            raise ChargeModeTransitionError(
+                "Smart charging could not be disabled; Scheduled mode was not requested"
+            )
+        return await self.async_delete_charger_charge_overrides(charger)
+
+    async def async_set_charger_smart_charging(
+        self,
+        charger: Charger,
+        enabled: bool
+    ) -> bool:
+        """Enable or disable delegated smart charging for a charger."""
+        if not isinstance(enabled, bool):
+            raise RequestValidationError("enabled must be a boolean")
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.patch(
+            url=self._url_from_path(
+                path=f"{DELEGATED_CONTROLS}/{charger.ppid}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body={"status": "ACTIVE" if enabled else "INACTIVE"},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        return response.status == 204
+
+    async def async_set_manual_schedules(
+        self,
+        charger: Charger,
+        schedules: List[ManualSchedule]
+    ) -> List[ManualSchedule]:
+        """Replace all seven manual charger schedules."""
+        if not isinstance(schedules, list):
+            raise RequestValidationError("schedules must be a list")
+        schedule_data = [
+            item.dict if isinstance(item, ManualSchedule) else item
+            for item in schedules
+        ]
+        self._validate_manual_schedules(schedule_data)
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.put(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{MANUAL_SCHEDULES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body={"schedules": schedule_data},
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ManualScheduleFactory().build_schedules(json)
 
     async def async_set_vehicle_intents(
         self,
@@ -781,6 +855,29 @@ class PodPointClient:
         )
         json = await self._handle_json_response(response=response)
         return Tariff(json)
+
+    async def _async_create_charger_charge_override(
+        self,
+        charger: Charger,
+        requested_at: datetime,
+        end_at: datetime = None
+    ) -> List[ChargerChargeOverride]:
+        """Create a timed or open-ended charger-centric override."""
+        body = {"requestedAt": self._utc_iso(requested_at)}
+        if end_at is not None:
+            body["endAt"] = self._utc_iso(end_at)
+
+        await self.auth.async_update_access_token()
+        response = await self.api_wrapper.post(
+            url=self._url_from_path(
+                path=f"{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}",
+                base=MOBILE_API_BASE_URL
+            ),
+            body=body,
+            headers=auth_headers(access_token=self.auth.access_token)
+        )
+        json = await self._handle_json_response(response=response)
+        return ChargerChargeOverrideFactory().build_overrides(json)
 
     async def async_set_charge_override(self, pod:Pod, hours:int=0, minutes:int=0, seconds:int=0) -> ChargeOverride:
         await self.auth.async_update_access_token()
@@ -953,6 +1050,58 @@ class PodPointClient:
                 or price < 0
             ):
                 raise RequestValidationError("tariff price must be a non-negative number")
+
+    @classmethod
+    def _validate_manual_schedules(cls, schedules: List[Dict[str, Any]]) -> None:
+        if len(schedules) != 7:
+            raise RequestValidationError(
+                "schedules must contain all seven days because this operation replaces them"
+            )
+        start_days = set()
+        for schedule in schedules:
+            if not isinstance(schedule, dict):
+                raise RequestValidationError(
+                    "each schedule must be a ManualSchedule or dict"
+                )
+            uid = schedule.get("uid")
+            start_day = schedule.get("startDay")
+            end_day = schedule.get("endDay")
+            status = schedule.get("status")
+            if not isinstance(uid, str) or not uid:
+                raise RequestValidationError("each schedule must have a uid")
+            if (
+                isinstance(start_day, bool)
+                or not isinstance(start_day, int)
+                or start_day not in range(1, 8)
+                or start_day in start_days
+            ):
+                raise RequestValidationError(
+                    "schedule startDay values must uniquely cover days 1-7"
+                )
+            if (
+                isinstance(end_day, bool)
+                or not isinstance(end_day, int)
+                or end_day not in range(1, 8)
+            ):
+                raise RequestValidationError(
+                    "schedule endDay must be an integer from 1 to 7"
+                )
+            if not cls._valid_time(schedule.get("startTime")):
+                raise RequestValidationError("schedule startTime must use HH:MM:SS")
+            if not cls._valid_time(schedule.get("endTime")):
+                raise RequestValidationError("schedule endTime must use HH:MM:SS")
+            if (
+                not isinstance(status, dict)
+                or not isinstance(status.get("isActive"), bool)
+            ):
+                raise RequestValidationError(
+                    "schedule status.isActive must be a boolean"
+                )
+            start_days.add(start_day)
+        if start_days != set(range(1, 8)):
+            raise RequestValidationError(
+                "schedule startDay values must uniquely cover days 1-7"
+            )
 
 
     def _schedule_data(self, enabled: bool) -> Dict[str, Any]:
