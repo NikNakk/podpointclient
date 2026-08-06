@@ -61,8 +61,8 @@ Method | Description
 `async_get_notification_preferences()` | *Get the current user's notification switches* - Returns a `NotificationPreferences` object.
 `async_create_charger_charge_override(charger, hours=0, minutes=0, seconds=0)` | *Create a timed charger override* - Returns a list of `ChargerChargeOverride` objects.
 `async_delete_charger_charge_overrides(charger)` | *Delete active charger overrides* - Returns a boolean.
-`async_set_charger_charge_mode_always_on(charger)` | *Disable smart charging, then enable basic charging indefinitely using an open-ended override* - Returns a list of `ChargerChargeOverride` objects.
-`async_set_charger_charge_mode_scheduled(charger)` | *Disable smart charging, end Always On, and return to configured manual schedules* - Returns a boolean.
+`async_set_charger_charge_mode_always_on(charger)` | *When smart charging is inactive, enable basic charging indefinitely using an open-ended override* - Returns a list of `ChargerChargeOverride` objects.
+`async_set_charger_charge_mode_scheduled(charger)` | *When smart charging is inactive, end Always On and return to configured manual schedules* - Returns a boolean.
 `async_set_charger_smart_charging(charger, enabled)` | *Enable or disable delegated smart charging explicitly* - Returns a boolean.
 `async_set_vehicle_intents(charger, vehicle_link_id, intents)` | *Replace recurring delegated-vehicle charging targets* - Returns a `VehicleIntent` object.
 `async_set_smart_charging_max_price(charger, max_price)` | *Set the smart-charging maximum unit price* - Returns a boolean.

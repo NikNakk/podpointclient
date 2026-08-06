@@ -68,6 +68,11 @@ async def test_captured_charger_mode_sequence():
 
     with aioresponses() as mocked:
         mocked.patch(delegated_url, status=204, repeat=True)
+        mocked.get(
+            delegated_url,
+            payload={"ppid": charger.ppid, "status": "INACTIVE"},
+            repeat=True,
+        )
         mocked.post(override_url, payload=override_response, status=201)
         mocked.delete(override_url, status=200)
         mocked.put(schedules_url, payload=schedules, status=200)
@@ -97,8 +102,6 @@ async def test_captured_charger_mode_sequence():
     assert len(updated) == 7
     assert [call.kwargs["json"] for call in patch_calls] == [
         {"status": "INACTIVE"},
-        {"status": "INACTIVE"},
-        {"status": "INACTIVE"},
         {"status": "ACTIVE"},
     ]
     assert post_call.kwargs["json"] == {
@@ -125,14 +128,17 @@ async def test_schedule_replacement_requires_all_seven_valid_days():
 
 
 @pytest.mark.asyncio
-async def test_always_on_stops_if_smart_charging_was_not_disabled():
+async def test_always_on_stops_without_changing_active_smart_charging():
     charger = Charger({"ppid": "TEST-PPID-1"})
     delegated_url = f"{MOBILE_API_BASE_URL}{DELEGATED_CONTROLS}/{charger.ppid}"
     override_url = (
         f"{MOBILE_API_BASE_URL}{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}"
     )
     with aioresponses() as mocked:
-        mocked.patch(delegated_url, status=200)
+        mocked.get(
+            delegated_url,
+            payload={"ppid": charger.ppid, "status": "ACTIVE"},
+        )
         mocked.post(override_url, payload=[], status=201)
         async with aiohttp.ClientSession() as session:
             client = authenticated_client(session)
@@ -140,3 +146,26 @@ async def test_always_on_stops_if_smart_charging_was_not_disabled():
                 await client.async_set_charger_charge_mode_always_on(charger)
 
         assert (hdrs.METH_POST, URL(override_url)) not in mocked.requests
+        assert (hdrs.METH_PATCH, URL(delegated_url)) not in mocked.requests
+
+
+@pytest.mark.asyncio
+async def test_scheduled_stops_without_changing_active_smart_charging():
+    charger = Charger({"ppid": "TEST-PPID-1"})
+    delegated_url = f"{MOBILE_API_BASE_URL}{DELEGATED_CONTROLS}/{charger.ppid}"
+    override_url = (
+        f"{MOBILE_API_BASE_URL}{CHARGERS}/{charger.ppid}{CHARGE_OVERRIDES}"
+    )
+    with aioresponses() as mocked:
+        mocked.get(
+            delegated_url,
+            payload={"ppid": charger.ppid, "status": "ACTIVE"},
+        )
+        mocked.delete(override_url, status=200)
+        async with aiohttp.ClientSession() as session:
+            client = authenticated_client(session)
+            with pytest.raises(ChargeModeTransitionError):
+                await client.async_set_charger_charge_mode_scheduled(charger)
+
+        assert (hdrs.METH_DELETE, URL(override_url)) not in mocked.requests
+        assert (hdrs.METH_PATCH, URL(delegated_url)) not in mocked.requests

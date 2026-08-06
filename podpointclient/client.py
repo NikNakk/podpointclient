@@ -677,14 +677,7 @@ class PodPointClient:
         """Enable basic charging indefinitely by creating an open-ended override."""
         requested_at = requested_at or datetime.now(timezone.utc)
         self._validate_aware_datetime(requested_at, "requested_at")
-        disabled = await self.async_set_charger_smart_charging(
-            charger,
-            enabled=False
-        )
-        if not disabled:
-            raise ChargeModeTransitionError(
-                "Smart charging could not be disabled; Always On was not requested"
-            )
+        await self._async_require_basic_charging(charger)
         return await self._async_create_charger_charge_override(
             charger=charger,
             requested_at=requested_at
@@ -707,14 +700,7 @@ class PodPointClient:
         charger: Charger
     ) -> bool:
         """Return basic charging to its configured manual schedules."""
-        disabled = await self.async_set_charger_smart_charging(
-            charger,
-            enabled=False
-        )
-        if not disabled:
-            raise ChargeModeTransitionError(
-                "Smart charging could not be disabled; Scheduled mode was not requested"
-            )
+        await self._async_require_basic_charging(charger)
         return await self.async_delete_charger_charge_overrides(charger)
 
     async def async_set_charger_smart_charging(
@@ -878,6 +864,15 @@ class PodPointClient:
         )
         json = await self._handle_json_response(response=response)
         return ChargerChargeOverrideFactory().build_overrides(json)
+
+    async def _async_require_basic_charging(self, charger: Charger) -> None:
+        """Raise a clear error unless delegated smart charging is inactive."""
+        delegated_control = await self.async_get_delegated_control(charger)
+        status = delegated_control.status if delegated_control is not None else None
+        if status != "INACTIVE":
+            raise ChargeModeTransitionError(
+                "Basic charging mode is unavailable while smart charging is active"
+            )
 
     async def async_set_charge_override(self, pod:Pod, hours:int=0, minutes:int=0, seconds:int=0) -> ChargeOverride:
         await self.auth.async_update_access_token()
