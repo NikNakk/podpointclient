@@ -70,7 +70,8 @@ Method | Description
 
 The charger mutation methods validate their inputs before making a request. They
 raise `RequestValidationError` for invalid durations, dates, times, weekdays,
-prices, or timezone names.
+prices, or timezone names. Smart-charging updates first check the current status
+and avoid sending a redundant update that the API would reject.
 
 ### Example
 

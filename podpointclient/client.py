@@ -711,13 +711,20 @@ class PodPointClient:
         """Enable or disable delegated smart charging for a charger."""
         if not isinstance(enabled, bool):
             raise RequestValidationError("enabled must be a boolean")
+        requested_status = "ACTIVE" if enabled else "INACTIVE"
+        delegated_control = await self.async_get_delegated_control(charger)
+        if (
+            delegated_control is not None
+            and delegated_control.status == requested_status
+        ):
+            return True
         await self.auth.async_update_access_token()
         response = await self.api_wrapper.patch(
             url=self._url_from_path(
                 path=f"{DELEGATED_CONTROLS}/{charger.ppid}",
                 base=MOBILE_API_BASE_URL
             ),
-            body={"status": "ACTIVE" if enabled else "INACTIVE"},
+            body={"status": requested_status},
             headers=auth_headers(access_token=self.auth.access_token)
         )
         return response.status == 204
