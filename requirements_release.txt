@@ -1,3 +1,4 @@
 aiohttp>=3
+async-timeout>=4
 StrEnum
 pytz
