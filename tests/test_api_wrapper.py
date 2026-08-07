@@ -1,9 +1,15 @@
 from urllib import response
+import asyncio
 import aiohttp
 from podpointclient.errors import APIError, ApiConnectionError
-from podpointclient.helpers.api_wrapper import APIWrapper
+from podpointclient.helpers.api_wrapper import APIWrapper, timeout_context
 import pytest
 from aioresponses import aioresponses
+
+
+def test_uses_builtin_timeout_when_available():
+  if hasattr(asyncio, "timeout"):
+    assert timeout_context is asyncio.timeout
 
 @pytest.mark.asyncio
 async def test_get(aiohttp_client):

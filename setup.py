@@ -25,7 +25,7 @@ setup(
     packages=find_packages(exclude=['tests']),
     install_requires=[
         "aiohttp>=3",
-        "async-timeout>=4",
+        'async-timeout>=4; python_version < "3.11"',
         "StrEnum>=0.4,<0.5",
         "pytz",
     ],
