@@ -8,6 +8,9 @@
 * Add unified timed boost start/stop and connectivity state operations.
 * Add unified firmware reads through the legacy unit endpoint for both charger sources.
 * Add typed unsupported-capability errors and reliable API status extraction.
+* Publish the maintained fork as the `podpointclient-niknakk` distribution,
+  retaining Matthew Rayner as original author and Nick Kennedy as maintainer.
+* Replace token-based release automation with PyPI Trusted Publishing.
 
 ## v1.6.0
 

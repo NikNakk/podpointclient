@@ -12,3 +12,13 @@ def test_direct_runtime_imports_are_declared():
     assert '"StrEnum>=0.4,<0.5"' in setup_contents
     assert '"pytz"' in setup_contents
     assert '"pyt"' not in setup_contents
+
+
+def test_fork_distribution_metadata_preserves_attribution():
+    """Ensure the fork has a distinct distribution and honest attribution."""
+    setup_contents = Path("setup.py").read_text(encoding="utf-8")
+
+    assert 'name="podpointclient-niknakk"' in setup_contents
+    assert 'author="Matthew Rayner"' in setup_contents
+    assert 'maintainer="Nick Kennedy"' in setup_contents
+    assert 'url="https://github.com/NikNakk/podpointclient"' in setup_contents

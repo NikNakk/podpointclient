@@ -1,6 +1,6 @@
 .pytest_cache
 dist
-podpointclient.egg-info
+*.egg-info
 *.pyc
 .coverage
 venv

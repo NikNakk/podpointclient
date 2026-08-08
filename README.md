@@ -17,11 +17,14 @@ for links to the upstream repository.
 ## Installation
 
 ```bash
-pip install "podpointclient @ git+https://github.com/NikNakk/podpointclient.git"
+pip install podpointclient-niknakk
 ```
 
-The `podpointclient` package from PyPI is maintained by the upstream project
-and may not include this fork's Home API additions.
+The distribution is named `podpointclient-niknakk`, while its Python import
+package remains `podpointclient`. The `podpointclient` distribution on PyPI is
+maintained by the upstream project and may not include this fork's Home API
+additions. Do not install both distributions in the same environment because
+they provide the same import package.
 
 ## Usage
 

@@ -1,4 +1,4 @@
-.PHONY: spec test lint clean package publish
+.PHONY: spec test lint clean package check publish
 
 test: spec
 
@@ -24,7 +24,10 @@ clean:
 	rm -rf dist/*
 
 package:
-	python3 setup.py sdist
+	python3 -m build
 
-publish: clean package
-	twine upload dist/* --verbose
+check: package
+	python3 -m twine check dist/*
+
+publish: clean check
+	python3 -m twine upload dist/* --verbose
