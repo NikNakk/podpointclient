@@ -67,6 +67,22 @@ async def describe_firmware(client: PodPointClient, charger) -> None:
         print(f"    Update available: {firmware.update_available}")
 
 
+async def describe_basic_mode(client: PodPointClient, charger) -> None:
+    """Read the canonical persistent/basic charging mode when available."""
+    if (
+        charger.capability(ChargerCapability.BASIC_CHARGING_MODE)
+        is CapabilitySupport.UNSUPPORTED
+    ):
+        print("  Basic charging mode is unsupported")
+        return
+    try:
+        mode = await client.async_get_basic_charging_mode(charger)
+    except UnsupportedCapabilityError:
+        print("  Basic charging mode endpoint is unsupported")
+        return
+    print(f"  Basic charging mode: {mode.value}")
+
+
 async def demonstrate_boost(
     client: PodPointClient, charger, boost_minutes: int
 ) -> None:
@@ -123,9 +139,10 @@ async def main(
             print(f"  Unit ID: {charger.unit_id or 'unknown'}")
             print(f"  Timezone: {charger.timezone or 'unknown'}")
             print(f"  Linked/commissioned: {charger.linked_at or 'unknown'}")
-            describe_capabilities(charger)
             await describe_state(client, charger)
             await describe_firmware(client, charger)
+            await describe_basic_mode(client, charger)
+            describe_capabilities(charger)
 
         await demonstrate_boost(client, chargers[0], boost_minutes)
 

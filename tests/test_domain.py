@@ -1,6 +1,6 @@
 """Tests for the API-independent charger domain facade."""
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import MappingProxyType, SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -14,14 +14,17 @@ from podpointclient.charger_charge_override import ChargerChargeOverride
 from podpointclient.client import PodPointClient
 from podpointclient.connectivity_status_v2 import ConnectivityStatusV2
 from podpointclient.domain import (
-    AccountCapability, CapabilitySupport, ChargerCapability, ChargerDomain,
-    ChargerIdentityError, ChargerSource, StateValue, boost_state_from_home,
+    AccountCapability, BasicChargingMode, CapabilitySupport, ChargeSession,
+    ChargerCapability, ChargerDomain, ChargerIdentityError, ChargerSource,
+    StateValue, boost_state_from_home,
     boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
     charge_session_from_home, charge_session_from_legacy, normalize_state,
+    reconcile_charge_sessions,
 )
 from podpointclient.errors import (
-    APIError, ApiConnectionError, AuthError, SessionError,
-    UnsupportedCapabilityError, api_error_status,
+    APIError, ApiConnectionError, AuthError, ChargeModeTransitionError,
+    RequestValidationError, SessionError, UnsupportedCapabilityError,
+    api_error_status,
 )
 from podpointclient.pod import Pod
 
@@ -446,10 +449,12 @@ async def test_home_and_legacy_charge_history_are_attributed_and_filtered():
     assert [item.ppid for item in home_sessions] == ["HOME"]
 
     legacy_charge = Charge({
-        "id": 3, "starts_at": "2026-08-01T10:00:00Z", "pod": {"id": 22}
+        "id": 3, "starts_at": "2026-08-01T10:00:00Z",
+        "ends_at": "2026-08-01T11:00:00Z", "pod": {"id": 22}
     })
     other_charge = Charge({
-        "id": 4, "starts_at": "2026-08-01T10:00:00Z", "pod": {"id": 99}
+        "id": 4, "starts_at": "2026-08-01T10:00:00Z",
+        "ends_at": "2026-08-01T11:00:00Z", "pod": {"id": 99}
     })
     client.async_get_all_charges.return_value = [legacy_charge, other_charge]
     legacy_sessions = await domain.async_get_charge_history(
@@ -482,3 +487,387 @@ def test_api_error_status_is_reliable_for_new_and_legacy_shapes():
     assert api_error_status(APIError(410, "omitted")) == 410
     assert api_error_status(APIError("API failed (404)")) == 404
     assert api_error_status(APIError("transport failed")) is None
+
+
+@pytest.mark.asyncio
+async def test_domain_credentials_verify_home_without_legacy_call():
+    client = AsyncMock()
+    client.async_get_chargers.return_value = [home_charger()]
+
+    assert await ChargerDomain(client).async_charger_credentials_verified()
+    client.async_get_all_pods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_client_exposes_new_domain_delegates():
+    domain = AsyncMock(spec=ChargerDomain)
+    domain.async_charger_credentials_verified.return_value = True
+    domain.async_get_basic_charging_mode.return_value = BasicChargingMode.SCHEDULED
+    domain.async_get_completed_charge_sessions.return_value = {"HOME": []}
+    domain.async_get_live_charge_sessions.return_value = {"HOME": []}
+    client = object.__new__(PodPointClient)
+    client._domain = domain
+    chargers = [home_ref("HOME")]
+
+    assert await client.async_charger_credentials_verified()
+    assert await client.async_get_basic_charging_mode(chargers[0]) is (
+        BasicChargingMode.SCHEDULED
+    )
+    assert await client.async_get_completed_charge_sessions(
+        chargers, date(2026, 8, 1), date(2026, 8, 2)
+    ) == {"HOME": []}
+    assert await client.async_get_live_charge_sessions(
+        chargers, per_page=10
+    ) == {"HOME": []}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_domain_credentials_verify_through_legacy_fallback(status):
+    client = AsyncMock()
+    client.async_get_chargers.side_effect = APIError(status, "missing")
+    client.async_get_all_pods.return_value = [legacy_pod()]
+
+    assert await ChargerDomain(client).async_charger_credentials_verified()
+    client.async_get_all_pods.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_domain_credentials_return_false_for_account_without_chargers():
+    client = AsyncMock()
+    client.async_get_chargers.return_value = []
+    assert not await ChargerDomain(client).async_charger_credentials_verified()
+    client.async_get_all_pods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("error", [
+    APIError(401, "denied"), APIError(429, "limited"), APIError(500, "failed"),
+    AuthError(401, "auth"), SessionError(401, "session"),
+    ApiConnectionError("offline"),
+])
+async def test_domain_credentials_propagate_non_fallback_errors(error):
+    client = AsyncMock()
+    client.async_get_chargers.side_effect = error
+    with pytest.raises(type(error)):
+        await ChargerDomain(client).async_charger_credentials_verified()
+    client.async_get_all_pods.assert_not_awaited()
+
+
+def canonical_session(
+    ppid, started_at, *, session_id=None, active=False, ended_at=None
+):
+    """Build a compact canonical session fixture."""
+    return ChargeSession(
+        ppid=ppid,
+        session_id=session_id,
+        started_at=started_at,
+        ended_at=ended_at,
+        active=active,
+        energy_kwh=None,
+        duration_seconds=None,
+        cost=None,
+        currency=None,
+        correlation_key=f"{ppid}:{started_at.isoformat()}",
+    )
+
+
+def test_reconcile_replaces_matches_deduplicates_and_orders():
+    start = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
+    earlier = canonical_session("A", start - timedelta(hours=1), session_id="E")
+    final = canonical_session(
+        "A", start + timedelta(seconds=60), session_id="H", ended_at=start
+    )
+    duplicate = canonical_session(
+        "A", start + timedelta(seconds=60), session_id="H", ended_at=start
+    )
+    provisional = canonical_session("A", start, session_id="L", active=True)
+    unmatched = canonical_session(
+        "A", start + timedelta(minutes=5), session_id="U", active=True
+    )
+
+    result = reconcile_charge_sessions(
+        [final, earlier, duplicate], [unmatched, provisional]
+    )
+
+    assert [item.session_id for item in result] == ["E", "H", "U"]
+    assert len([item for item in result if item.session_id == "H"]) == 1
+
+
+def test_reconcile_observes_tolerance_ppid_and_stable_identifiers():
+    start = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
+    final = canonical_session("A", start, session_id="S", ended_at=start)
+    exact = canonical_session(
+        "A", start + timedelta(seconds=60), session_id="different", active=True
+    )
+    outside = canonical_session(
+        "A", start + timedelta(seconds=61), session_id="outside", active=True
+    )
+    other = canonical_session("B", start, session_id="other", active=True)
+    same_id = canonical_session(
+        "A", start + timedelta(hours=1), session_id="S", active=True
+    )
+
+    result = reconcile_charge_sessions(
+        [final], [exact, outside, other, same_id], tolerance=timedelta(seconds=60)
+    )
+
+    assert {item.session_id for item in result} == {"S", "outside", "other"}
+
+
+@pytest.mark.asyncio
+async def test_completed_home_history_groups_multiple_chargers_once():
+    client = AsyncMock()
+    chargers = [home_ref("A"), home_ref("B")]
+    client.async_get_charge_history.return_value = ChargeHistory({
+        "data": {"charges": [
+            {"id": "HA", "startedAt": "2026-08-01T10:00:00Z",
+             "endedAt": "2026-08-01T11:00:00Z", "charger": {"id": "A"}},
+            {"id": "HB", "startedAt": "2026-08-01T12:00:00Z",
+             "endedAt": "2026-08-01T13:00:00Z", "charger": {"id": "B"}},
+        ]}
+    })
+    domain = ChargerDomain(client)
+
+    groups = await domain.async_get_completed_charge_sessions(
+        chargers, date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert groups["A"][0].session_id == "HA"
+    assert groups["B"][0].session_id == "HB"
+    client.async_get_charge_history.assert_awaited_once()
+    client.async_get_all_pods.assert_not_awaited()
+    client.async_get_all_charges.assert_not_awaited()
+    assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
+        CapabilitySupport.SUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_home_charger_receives_legacy_live_session_and_caches_identity():
+    client = AsyncMock()
+    charger = home_ref("HOME")
+    client.async_get_all_pods.return_value = [legacy_pod("HOME", pod_id=22)]
+    client.async_get_charges.return_value = [Charge({
+        "id": 7, "starts_at": "2026-08-01T10:00:00Z", "ends_at": None,
+        "pod": {"id": 22},
+    })]
+    domain = ChargerDomain(client)
+
+    first = await domain.async_get_live_charge_sessions([charger])
+    second = await domain.async_get_live_charge_sessions([charger])
+
+    assert first["HOME"][0].session_id == "7"
+    assert second["HOME"][0].active
+    client.async_get_all_pods.assert_awaited_once()
+    assert client.async_get_charges.await_count == 2
+    client.async_get_charge_history.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_home_history_confirmed_absence_falls_back_to_legacy(status):
+    client = AsyncMock()
+    charger = home_ref("HOME")
+    client.async_get_charge_history.side_effect = APIError(status, "missing")
+    client.async_get_all_pods.return_value = [legacy_pod("HOME", pod_id=22)]
+    client.async_get_all_charges.return_value = [
+        Charge({
+            "id": 8, "starts_at": "2026-08-01T10:00:00Z",
+            "ends_at": "2026-08-01T11:00:00Z", "pod": {"id": 22},
+        }),
+        Charge({
+            "id": 9, "starts_at": "2026-07-01T10:00:00Z",
+            "ends_at": "2026-07-01T11:00:00Z", "pod": {"id": 22},
+        }),
+    ]
+    domain = ChargerDomain(client)
+
+    groups = await domain.async_get_completed_charge_sessions(
+        [charger], date(2026, 8, 1), date(2026, 8, 2)
+    )
+    await domain.async_get_completed_charge_sessions(
+        [charger], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert [item.session_id for item in groups["HOME"]] == ["8"]
+    assert client.async_get_charge_history.await_count == 1
+    assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
+        CapabilitySupport.UNSUPPORTED
+    )
+    assert domain.account_capability(AccountCapability.LEGACY_CHARGES) is (
+        CapabilitySupport.SUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_home_history_transient_failure_does_not_fall_back():
+    client = AsyncMock()
+    client.async_get_charge_history.side_effect = APIError(500, "failed")
+    domain = ChargerDomain(client)
+
+    with pytest.raises(APIError):
+        await domain.async_get_completed_charge_sessions(
+            [home_ref()], date(2026, 8, 1), date(2026, 8, 2)
+        )
+
+    client.async_get_all_pods.assert_not_awaited()
+    client.async_get_all_charges.assert_not_awaited()
+    assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
+        CapabilitySupport.UNKNOWN
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_live_absence_does_not_invalidate_home_history():
+    client = AsyncMock()
+    charger = home_ref("HOME")
+    client.async_get_charge_history.return_value = ChargeHistory({"data": {}})
+    client.async_get_all_pods.return_value = [legacy_pod("HOME", pod_id=22)]
+    client.async_get_charges.side_effect = APIError(404, "missing")
+    domain = ChargerDomain(client)
+    await domain.async_get_completed_charge_sessions(
+        [charger], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_live_charge_sessions([charger])
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_live_charge_sessions([charger])
+
+    assert client.async_get_all_pods.await_count == 1
+    assert client.async_get_charges.await_count == 1
+    assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
+        CapabilitySupport.SUPPORTED
+    )
+    assert domain.account_capability(AccountCapability.LEGACY_CHARGES) is (
+        CapabilitySupport.UNSUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_mixed_refs_share_legacy_live_grouping_and_filter_completed():
+    client = AsyncMock()
+    home = home_ref("HOME")
+    legacy = charger_ref_from_pod(legacy_pod("LEGACY", pod_id=23))
+    client.async_get_all_pods.return_value = [
+        legacy_pod("HOME", pod_id=22), legacy_pod("LEGACY", pod_id=23)
+    ]
+    client.async_get_charges.return_value = [
+        Charge({"id": 1, "starts_at": "2026-08-01T10:00:00Z",
+                "ends_at": None, "pod": {"id": 22}}),
+        Charge({"id": 2, "starts_at": "2026-08-01T11:00:00Z",
+                "ends_at": None, "pod": {"id": 23}}),
+        Charge({"id": 3, "starts_at": "2026-08-01T12:00:00Z",
+                "ends_at": "2026-08-01T13:00:00Z", "pod": {"id": 22}}),
+    ]
+
+    groups = await ChargerDomain(client).async_get_live_charge_sessions(
+        [home, legacy], per_page=25
+    )
+
+    assert [item.session_id for item in groups["HOME"]] == ["1"]
+    assert [item.session_id for item in groups["LEGACY"]] == ["2"]
+    client.async_get_charges.assert_awaited_once_with(perpage=25, page=1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("override", "expected"), [
+    (None, BasicChargingMode.SCHEDULED),
+    ({"id": "O", "requestedAt": "2026-08-01T10:00:00Z",
+      "chargingStation": {"ppid": "HOME"}}, BasicChargingMode.ALWAYS_ON),
+    ({"id": "T", "requestedAt": "2026-08-01T10:00:00Z",
+      "endAt": "2026-08-01T11:00:00Z",
+      "chargingStation": {"ppid": "HOME"}}, BasicChargingMode.TIMED_BOOST),
+])
+async def test_get_basic_charging_mode(override, expected):
+    client = AsyncMock()
+    client.async_get_charger_charge_overrides.return_value = (
+        [ChargerChargeOverride(override)] if override else []
+    )
+    assert await ChargerDomain(client).async_get_basic_charging_mode(
+        home_ref("HOME")
+    ) is expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [
+    BasicChargingMode.ALWAYS_ON, BasicChargingMode.SCHEDULED,
+])
+async def test_set_basic_charging_mode_dispatches_home_operations(mode):
+    client = AsyncMock()
+    charger_model = home_charger()
+    charger = charger_ref_from_charger(charger_model)
+    domain = ChargerDomain(client)
+
+    assert await domain.async_set_basic_charging_mode(charger, mode) is mode
+    if mode is BasicChargingMode.ALWAYS_ON:
+        client.async_set_charger_charge_mode_always_on.assert_awaited_once_with(
+            charger_model
+        )
+    else:
+        client.async_set_charger_charge_mode_scheduled.assert_awaited_once_with(
+            charger_model
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [
+    BasicChargingMode.TIMED_BOOST, BasicChargingMode.UNKNOWN, "scheduled",
+])
+async def test_set_basic_charging_mode_rejects_nonpersistent_values(mode):
+    client = AsyncMock()
+    with pytest.raises(RequestValidationError):
+        await ChargerDomain(client).async_set_basic_charging_mode(home_ref(), mode)
+    client.async_set_charger_charge_mode_always_on.assert_not_awaited()
+    client.async_set_charger_charge_mode_scheduled.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_basic_mode_preserves_smart_charging_prerequisite_error():
+    client = AsyncMock()
+    client.async_set_charger_charge_mode_always_on.side_effect = (
+        ChargeModeTransitionError("smart charging active")
+    )
+    charger = home_ref()
+    with pytest.raises(ChargeModeTransitionError):
+        await ChargerDomain(client).async_set_basic_charging_mode(
+            charger, BasicChargingMode.ALWAYS_ON
+        )
+    assert charger.capability(ChargerCapability.BASIC_CHARGING_MODE) is (
+        CapabilitySupport.UNKNOWN
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_basic_mode_confirmed_absence_is_typed_and_retained(status):
+    client = AsyncMock()
+    client.async_get_charger_charge_overrides.side_effect = APIError(status, "missing")
+    charger = home_ref()
+    domain = ChargerDomain(client)
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_basic_charging_mode(charger)
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_basic_charging_mode(charger)
+
+    assert client.async_get_charger_charge_overrides.await_count == 1
+    assert charger.capability(ChargerCapability.BASIC_CHARGING_MODE) is (
+        CapabilitySupport.UNSUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_basic_mode_transient_error_and_structural_legacy_support():
+    client = AsyncMock()
+    client.async_get_charger_charge_overrides.side_effect = APIError(500, "failed")
+    home = home_ref()
+    with pytest.raises(APIError):
+        await ChargerDomain(client).async_get_basic_charging_mode(home)
+    assert home.capability(ChargerCapability.BASIC_CHARGING_MODE) is (
+        CapabilitySupport.UNKNOWN
+    )
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await ChargerDomain(client).async_get_basic_charging_mode(legacy_ref())

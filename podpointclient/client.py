@@ -115,6 +115,10 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         """Discover canonical charger references using Home-first fallback."""
         return await self.domain.async_discover_chargers()
 
+    async def async_charger_credentials_verified(self) -> bool:
+        """Verify access using Home-first domain charger discovery."""
+        return await self.domain.async_charger_credentials_verified()
+
     async def async_start_boost(self, charger, hours=0, minutes=0, seconds=0):
         """Start a timed boost without selecting a wire API."""
         return await self.domain.async_start_boost(
@@ -136,6 +140,14 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
     async def async_get_active_boost(self, charger):
         """Get canonical active/inactive boost state."""
         return await self.domain.async_get_active_boost(charger)
+
+    async def async_get_basic_charging_mode(self, charger):
+        """Get canonical persistent/basic charging mode."""
+        return await self.domain.async_get_basic_charging_mode(charger)
+
+    async def async_set_basic_charging_mode(self, charger, mode):
+        """Set scheduled or always-on basic charging through the domain API."""
+        return await self.domain.async_set_basic_charging_mode(charger, mode)
 
     async def async_get_charger_legacy_schedules(self, charger):
         """Get legacy schedules without unwrapping a charger reference."""
@@ -201,6 +213,24 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         """Fetch account history once and group canonical sessions by PPID."""
         return await self.domain.async_get_charge_history_groups(
             chargers, from_date, to_date
+        )
+
+    async def async_get_completed_charge_sessions(
+        self, chargers, from_date: date, to_date: date
+    ):
+        """Get authoritative completed sessions with legacy fallback."""
+        return await self.domain.async_get_completed_charge_sessions(
+            chargers, from_date, to_date
+        )
+
+    async def async_get_live_charge_sessions(
+        self, chargers, *, per_page=50, include_completed=False
+    ):
+        """Get recent legacy provisional sessions grouped by PPID."""
+        return await self.domain.async_get_live_charge_sessions(
+            chargers,
+            per_page=per_page,
+            include_completed=include_completed,
         )
 
     async def async_get_account_reward_wallet(self):

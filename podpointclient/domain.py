@@ -2,7 +2,7 @@
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from enum import Enum
 from types import MappingProxyType
 from typing import Any, Awaitable, Callable, Dict, List, Mapping, Optional, Union
@@ -14,7 +14,10 @@ from .charger import Charger
 from .charger_charge_override import ChargerChargeOverride
 from .connectivity_status import ConnectivityStatus
 from .connectivity_status_v2 import ConnectivityStatusV2
-from .errors import APIError, UnsupportedCapabilityError, is_unsupported_api_error
+from .errors import (
+    APIError, RequestValidationError, UnsupportedCapabilityError,
+    is_unsupported_api_error,
+)
 from .pod import Pod
 
 
@@ -49,13 +52,27 @@ class ChargerCapability(Enum):
     TARIFFS = "tariffs"
     REMOTE_LOCK = "remote_lock"
     FIRMWARE = "firmware"
+    BASIC_CHARGING_MODE = "basic_charging_mode"
+
 
 class AccountCapability(Enum):
     """Features fetched once at account scope and optionally grouped by PPID."""
 
     DELEGATED_VEHICLES = "delegated_vehicles"
+    # Retained as a compatibility view over the two history-source capabilities.
     CHARGE_HISTORY = "charge_history"
+    HOME_CHARGE_HISTORY = "home_charge_history"
+    LEGACY_CHARGES = "legacy_charges"
     REWARD_WALLET = "reward_wallet"
+
+
+class BasicChargingMode(Enum):
+    """Canonical persistent/basic charging mode."""
+
+    SCHEDULED = "scheduled"
+    ALWAYS_ON = "always_on"
+    TIMED_BOOST = "timed_boost"
+    UNKNOWN = "unknown"
 
 
 class StateValue(Enum):
@@ -171,6 +188,7 @@ def _initial_charger_capabilities(source: ChargerSource, unit_id: Optional[int])
     else:
         for capability in (
             ChargerCapability.MANUAL_SCHEDULING,
+            ChargerCapability.BASIC_CHARGING_MODE,
             ChargerCapability.DELEGATED_SMART_CHARGING,
             ChargerCapability.SMART_CHARGING_PREFERENCES,
             ChargerCapability.TARIFFS,
@@ -312,18 +330,87 @@ def charge_session_from_home(ppid: str, charge: ChargeHistoryItem) -> ChargeSess
     )
 
 
+def _session_sort_key(session: ChargeSession):
+    """Return a deterministic key without comparing naive and aware datetimes."""
+    return (
+        session.started_at is None,
+        session.started_at.isoformat() if session.started_at else "",
+        session.ppid,
+        session.session_id or "",
+        session.ended_at.isoformat() if session.ended_at else "",
+    )
+
+
+def reconcile_charge_sessions(
+    completed: List[ChargeSession],
+    provisional: List[ChargeSession],
+    *,
+    tolerance: timedelta = timedelta(seconds=60),
+) -> List[ChargeSession]:
+    """Combine authoritative completed sessions with unmatched provisional ones."""
+    if tolerance < timedelta(0):
+        raise ValueError("tolerance must not be negative")
+
+    unique_completed = {}
+    for session in completed:
+        identity = (
+            ("id", session.ppid, session.session_id)
+            if session.session_id is not None
+            else (
+                "time", session.ppid, session.started_at, session.ended_at,
+                session.energy_kwh,
+            )
+        )
+        unique_completed.setdefault(identity, session)
+
+    authoritative = list(unique_completed.values())
+
+    def matches(candidate: ChargeSession, final: ChargeSession) -> bool:
+        if candidate.ppid != final.ppid:
+            return False
+        if (
+            candidate.session_id is not None
+            and final.session_id is not None
+            and candidate.session_id == final.session_id
+        ):
+            return True
+        if candidate.started_at is None or final.started_at is None:
+            return False
+        try:
+            difference = abs(candidate.started_at - final.started_at)
+        except TypeError:
+            return False
+        return difference <= tolerance
+
+    unmatched = [
+        session for session in provisional
+        if not any(matches(session, final) for final in authoritative)
+    ]
+    return sorted(authoritative + unmatched, key=_session_sort_key)
+
+
 class ChargerDomain:  # pylint: disable=too-many-public-methods
     """High-level operations which hide endpoint selection from consumers."""
 
     def __init__(self, client: Any):
         self._client = client
         self._charger_states: Dict[Any, _CapabilityState] = {}
+        self._legacy_ppid_by_pod_id: Dict[Any, str] = {}
+        self._legacy_identity_resolved = False
         self._account_state = _CapabilityState({
             capability: CapabilitySupport.UNKNOWN for capability in AccountCapability
         })
 
     def account_capability(self, capability: AccountCapability) -> CapabilitySupport:
         """Return the observed support state of an account-level feature."""
+        if capability is AccountCapability.CHARGE_HISTORY:
+            home = self._account_state.get(AccountCapability.HOME_CHARGE_HISTORY)
+            legacy = self._account_state.get(AccountCapability.LEGACY_CHARGES)
+            if CapabilitySupport.SUPPORTED in (home, legacy):
+                return CapabilitySupport.SUPPORTED
+            if home is legacy is CapabilitySupport.UNSUPPORTED:
+                return CapabilitySupport.UNSUPPORTED
+            return CapabilitySupport.UNKNOWN
         return self._account_state.get(capability)
 
     async def _call(
@@ -395,6 +482,10 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
             ) for item in pods
         ]
 
+    async def async_charger_credentials_verified(self) -> bool:
+        """Verify credentials through Home-first canonical discovery."""
+        return bool(await self.async_discover_chargers())
+
     async def async_get_state(self, charger: ChargerRef) -> ChargerState:
         """Fetch and normalize connectivity and charging state."""
         async def operation():
@@ -430,6 +521,45 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
             override = await self._client.async_get_charge_override(charger.raw)
             return boost_state_from_legacy(charger.ppid, override)
         return await self._call(charger, ChargerCapability.TIMED_BOOST, operation)
+
+    async def async_get_basic_charging_mode(
+        self, charger: ChargerRef
+    ) -> BasicChargingMode:
+        """Get persistent basic mode while distinguishing an active timed boost."""
+        async def operation():
+            items = await self._client.async_get_charger_charge_overrides(
+                charger.raw, active_only=True
+            )
+            state = boost_state_from_home(charger.ppid, items[0] if items else None)
+            if not state.active:
+                return BasicChargingMode.SCHEDULED
+            if state.timed:
+                return BasicChargingMode.TIMED_BOOST
+            return BasicChargingMode.ALWAYS_ON
+        return await self._call(
+            charger, ChargerCapability.BASIC_CHARGING_MODE, operation
+        )
+
+    async def async_set_basic_charging_mode(
+        self, charger: ChargerRef, mode: BasicChargingMode
+    ) -> BasicChargingMode:
+        """Set one of the two persistent Home basic charging modes."""
+        if not isinstance(mode, BasicChargingMode):
+            raise RequestValidationError("mode must be a BasicChargingMode")
+        if mode not in (BasicChargingMode.SCHEDULED, BasicChargingMode.ALWAYS_ON):
+            raise RequestValidationError(
+                "only scheduled or always_on can be set as a persistent mode"
+            )
+
+        async def operation():
+            if mode is BasicChargingMode.ALWAYS_ON:
+                await self._client.async_set_charger_charge_mode_always_on(charger.raw)
+            else:
+                await self._client.async_set_charger_charge_mode_scheduled(charger.raw)
+            return mode
+        return await self._call(
+            charger, ChargerCapability.BASIC_CHARGING_MODE, operation
+        )
 
     async def async_start_boost(
         self, charger: ChargerRef, hours: int = 0, minutes: int = 0, seconds: int = 0
@@ -550,8 +680,8 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
     async def async_get_charge_history(
         self, charger: ChargerRef, from_date: date, to_date: date
     ) -> List[ChargeSession]:
-        """Fetch account history and return canonical sessions for one charger."""
-        groups = await self.async_get_charge_history_groups(
+        """Compatibility wrapper returning completed sessions for one charger."""
+        groups = await self.async_get_completed_charge_sessions(
             [charger], from_date, to_date
         )
         return groups.get(charger.ppid, [])
@@ -559,40 +689,127 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
     async def async_get_charge_history_groups(
         self, chargers: List[ChargerRef], from_date: date, to_date: date
     ) -> Dict[str, List[ChargeSession]]:
-        """Fetch each account history API once and group sessions by PPID."""
+        """Compatibility wrapper for grouped completed charge sessions."""
+        return await self.async_get_completed_charge_sessions(
+            chargers, from_date, to_date
+        )
+
+    async def async_get_completed_charge_sessions(
+        self, chargers: List[ChargerRef], from_date: date, to_date: date
+    ) -> Dict[str, List[ChargeSession]]:
+        """Get authoritative Home history, with confirmed-absence legacy fallback."""
+        groups = {charger.ppid: [] for charger in chargers}
+        if not chargers:
+            return groups
+        home_capable = any(
+            charger.source is ChargerSource.HOME for charger in chargers
+        )
+        if not home_capable:
+            return await self._async_get_legacy_completed_sessions(
+                chargers, from_date, to_date
+            )
+
         async def operation():
-            groups = {charger.ppid: [] for charger in chargers}
-            home_chargers = {
-                charger.ppid: charger for charger in chargers
-                if charger.source is ChargerSource.HOME
-            }
-            if home_chargers:
-                history = await self._client.async_get_charge_history(from_date, to_date)
-                for item in history.charges:
-                    if item.charger_id in home_chargers:
-                        groups[item.charger_id].append(
-                            charge_session_from_home(item.charger_id, item)
-                        )
-            legacy_by_id = {}
-            for charger in chargers:
-                pod_id = getattr(charger.raw, "id", None)
-                if charger.source is ChargerSource.LEGACY and pod_id is not None:
-                    legacy_by_id[pod_id] = charger
-            if legacy_by_id:
-                charges = await self._client.async_get_all_charges()
-                for item in charges:
-                    charger = legacy_by_id.get(item.pod.id)
-                    if charger is None:
-                        continue
-                    if item.starts_at is not None and not (
-                        from_date <= item.starts_at.date() <= to_date
-                    ):
-                        continue
-                    groups[charger.ppid].append(
-                        charge_session_from_legacy(charger.ppid, item)
+            history = await self._client.async_get_charge_history(from_date, to_date)
+            for item in history.charges:
+                if item.charger_id in groups:
+                    groups[item.charger_id].append(
+                        charge_session_from_home(item.charger_id, item)
                     )
             return groups
-        return await self._call_account(AccountCapability.CHARGE_HISTORY, operation)
+
+        try:
+            return await self._call_account(
+                AccountCapability.HOME_CHARGE_HISTORY, operation
+            )
+        except UnsupportedCapabilityError:
+            return await self._async_get_legacy_completed_sessions(
+                chargers, from_date, to_date
+            )
+
+    async def async_get_live_charge_sessions(
+        self,
+        chargers: List[ChargerRef],
+        *,
+        per_page: int = 50,
+        include_completed: bool = False,
+    ) -> Dict[str, List[ChargeSession]]:
+        """Get recent legacy provisional sessions grouped by canonical PPID."""
+        if isinstance(per_page, bool) or not isinstance(per_page, int) or per_page < 1:
+            raise RequestValidationError("per_page must be a positive integer")
+        if not isinstance(include_completed, bool):
+            raise RequestValidationError("include_completed must be a boolean")
+        if not chargers:
+            return {}
+
+        async def operation():
+            await self._async_resolve_legacy_identities(chargers)
+            charges = await self._client.async_get_charges(
+                perpage=per_page, page=1
+            )
+            return self._group_legacy_sessions(
+                chargers, charges, include_completed=include_completed
+            )
+        return await self._call_account(AccountCapability.LEGACY_CHARGES, operation)
+
+    async def _async_get_legacy_completed_sessions(
+        self, chargers: List[ChargerRef], from_date: date, to_date: date
+    ) -> Dict[str, List[ChargeSession]]:
+        """Get date-filtered completed legacy charges once for fallback use."""
+        async def operation():
+            await self._async_resolve_legacy_identities(chargers)
+            charges = await self._client.async_get_all_charges()
+            groups = self._group_legacy_sessions(
+                chargers, charges, include_completed=True
+            )
+            for ppid, sessions in groups.items():
+                groups[ppid] = [
+                    session for session in sessions
+                    if not session.active
+                    and session.started_at is not None
+                    and from_date <= session.started_at.date() <= to_date
+                ]
+            return groups
+        return await self._call_account(AccountCapability.LEGACY_CHARGES, operation)
+
+    async def _async_resolve_legacy_identities(
+        self, chargers: List[ChargerRef]
+    ) -> None:
+        """Resolve legacy Pod IDs to PPIDs once, without affecting discovery."""
+        for charger in chargers:
+            if charger.source is ChargerSource.LEGACY:
+                pod_id = getattr(charger.raw, "id", None)
+                if pod_id is not None:
+                    self._legacy_ppid_by_pod_id[pod_id] = charger.ppid
+        known_ppids = set(self._legacy_ppid_by_pod_id.values())
+        if self._legacy_identity_resolved or all(
+            charger.ppid in known_ppids for charger in chargers
+        ):
+            return
+        pods = await self._client.async_get_all_pods()
+        for pod in pods:
+            if pod.id is not None and isinstance(pod.ppid, str) and pod.ppid.strip():
+                self._legacy_ppid_by_pod_id[pod.id] = pod.ppid
+        self._legacy_identity_resolved = True
+
+    def _group_legacy_sessions(
+        self,
+        chargers: List[ChargerRef],
+        charges: List[Charge],
+        *,
+        include_completed: bool,
+    ) -> Dict[str, List[ChargeSession]]:
+        """Normalize legacy charges and associate Pod IDs with requested PPIDs."""
+        groups = {charger.ppid: [] for charger in chargers}
+        for charge in charges:
+            if not include_completed and charge.ends_at is not None:
+                continue
+            ppid = self._legacy_ppid_by_pod_id.get(charge.pod.id)
+            if ppid in groups:
+                groups[ppid].append(charge_session_from_legacy(ppid, charge))
+        for sessions in groups.values():
+            sessions.sort(key=_session_sort_key)
+        return groups
 
     async def async_get_reward_wallet(self):
         """Get the account reward wallet with account-level capability semantics."""

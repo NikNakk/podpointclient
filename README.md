@@ -41,7 +41,8 @@ first and uses the legacy Pod API only when Home discovery is confirmed absent
 from datetime import date
 
 from podpointclient import (
-    CapabilitySupport, ChargerCapability, UnsupportedCapabilityError,
+    BasicChargingMode, CapabilitySupport, ChargerCapability,
+    UnsupportedCapabilityError,
 )
 
 chargers = await client.async_discover_chargers()
@@ -56,6 +57,7 @@ try:
     history = await client.async_get_charger_charge_history(
         charger, date(2026, 8, 1), date(2026, 8, 31)
     )
+    basic_mode = await client.async_get_basic_charging_mode(charger)
 except UnsupportedCapabilityError as error:
     print(f"{error.capability.value} is unavailable")
 
@@ -94,6 +96,76 @@ history_groups = await client.async_get_domain_charge_history_groups(
 wallet = await client.async_get_account_reward_wallet()
 ```
 
+New integrations should verify credentials with
+`async_charger_credentials_verified()`. It authenticates through Home-first
+domain discovery and only falls back to legacy Pods after a confirmed 404/410.
+The older `async_credentials_verified()` remains available with its established
+legacy-only behaviour.
+
+### Completed and live charge sessions
+
+Home history and legacy charges are complementary rather than permanent choices
+based on how a charger was discovered. Home history is authoritative for
+completed sessions, while the legacy recent-charge endpoint exposes
+provisional sessions during charging:
+
+```python
+from podpointclient import reconcile_charge_sessions
+
+# Fetch at startup and on a relatively slow reconciliation cadence.
+completed = await client.async_get_completed_charge_sessions(
+    chargers, date(2026, 8, 1), date(2026, 8, 31)
+)
+
+# Fetch more frequently only while chargers may have live sessions.
+provisional = await client.async_get_live_charge_sessions(chargers)
+
+sessions_by_ppid = {
+    charger.ppid: reconcile_charge_sessions(
+        completed[charger.ppid], provisional[charger.ppid]
+    )
+    for charger in chargers
+}
+```
+
+Completed retrieval calls Home history once for the account. It falls back to
+date-filtered legacy completed charges only after Home returns 404/410; other
+errors propagate. Live retrieval resolves legacy Pod IDs to canonical PPIDs
+internally on first use, retains that mapping in memory, and returns only
+active/incomplete records by default. Pass `include_completed=True` when recent
+completed legacy records are explicitly wanted.
+
+Support is observed independently through
+`AccountCapability.HOME_CHARGE_HISTORY` and
+`AccountCapability.LEGACY_CHARGES`. A failure from one source does not invalidate
+the other. This separation lets an integration retain its previously cached
+completed or provisional data when an optional poll fails; the library does not
+hide transient errors or impose a polling cadence.
+
+`reconcile_charge_sessions()` deduplicates completed sessions, replaces matching
+legacy provisional sessions with authoritative completed records, and retains
+unmatched live sessions. Matching never crosses PPIDs and uses compatible
+session IDs first, then start times within a configurable 60-second tolerance.
+
+### Persistent basic charging mode
+
+For Home chargers, `async_get_basic_charging_mode()` returns
+`BasicChargingMode.SCHEDULED`, `ALWAYS_ON`, or `TIMED_BOOST` from active override
+state. Persistent transitions use the canonical reference:
+
+```python
+await client.async_set_basic_charging_mode(
+    charger, BasicChargingMode.ALWAYS_ON
+)
+await client.async_set_basic_charging_mode(
+    charger, BasicChargingMode.SCHEDULED
+)
+```
+
+`TIMED_BOOST` and `UNKNOWN` are observations and cannot be set through this
+persistent-mode method. The existing smart-charging prerequisite checks remain
+in force.
+
 Boost reads return `BoostState`; charge history returns `ChargeSession`. These
 small canonical models normalize the fields that differ between APIs while
 retaining the raw source response for diagnostics. Tariffs, manual schedules,
@@ -110,9 +182,12 @@ The [Pod Point Client][pod_point_client] supports the following methods:
 Method | Description
 ---|---
 `async_discover_chargers()` | *Discover canonical `ChargerRef` objects through Home-first, confirmed-unsupported fallback.*
+`async_charger_credentials_verified()` | *Verify charger access using domain Home-first discovery.*
 `async_start_boost(charger, hours=0, minutes=0, seconds=0)` | *Start a timed boost without selecting a wire API.*
 `async_stop_boost(charger)` | *Stop active boosts without selecting a wire API.*
 `async_get_active_boost(charger)` | *Get canonical active, timed, or open-ended `BoostState`.*
+`async_get_basic_charging_mode(charger)` | *Get scheduled, always-on, or timed-boost basic mode.*
+`async_set_basic_charging_mode(charger, mode)` | *Set persistent scheduled or always-on Home basic mode.*
 `async_get_charger_state(charger)` | *Get normalized connectivity and charging state.*
 `async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
 `async_get_charger_legacy_schedules(charger)` | *Get legacy schedules where structurally applicable.*
@@ -126,6 +201,8 @@ Method | Description
 `async_get_charger_remote_lock(charger)` | *Get remote lock/off-mode state.*
 `async_get_charger_delegated_vehicles(charger)` | *Get account records associated with one PPID.*
 `async_get_charger_charge_history(charger, from_date, to_date)` | *Get canonical `ChargeSession` records.*
+`async_get_completed_charge_sessions(chargers, from_date, to_date)` | *Get grouped authoritative completed history with confirmed-absence fallback.*
+`async_get_live_charge_sessions(chargers)` | *Get grouped legacy provisional/live sessions independently.*
 `async_get_account_reward_wallet()` | *Get reward wallet with account capability semantics.*
 `async_credentials_verified()` | *Verify that the credentials we have can pull _atleast_ one Pod* - Returns `bool`.
 `async_get_all_pods(includes=[])` | *Get all pods from a user's account* - Returns a list of `Pod` objects. Optional `includes` can be used to change what will be returned. Defaults to all data.

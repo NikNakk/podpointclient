@@ -1,5 +1,15 @@
 # Pod Point Client Changelog
 
+## v1.7.0b4
+
+* Add Home-first domain credential verification for Home-only accounts.
+* Treat Home completed history and legacy live charges as independently
+  observed, complementary account capabilities.
+* Add grouped completed and provisional session retrieval with deferred,
+  in-memory legacy Pod-ID-to-PPID resolution.
+* Add deterministic canonical charge-session reconciliation.
+* Add canonical scheduled, always-on, and timed-boost basic charging modes.
+
 ## v1.7.0b3
 
 * Retain runtime charger and account capability observations on a stable domain
