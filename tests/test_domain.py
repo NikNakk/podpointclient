@@ -17,11 +17,12 @@ from podpointclient.connectivity_status_v2 import ConnectivityStatusV2
 from podpointclient.domain import (
     AccountCapability, BasicChargingMode, BoostState, CapabilitySupport, ChargeSession,
     ChargeSessionSource, ChargerCapability, ChargerDomain, ChargerIdentityError,
-    ChargerSource, ConnectionQualityDiagnostic, StateValue,
+    ChargerSchedule, ChargerSource, ConnectionQualityDiagnostic, StateValue,
     basic_charging_mode_from_boost, boost_state_from_home,
     boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
-    charge_session_from_home,
-    charge_session_from_legacy, normalize_state, reconcile_charge_sessions,
+    charge_session_from_home, charge_session_from_legacy,
+    charger_schedule_from_home, charger_schedule_from_legacy, normalize_state,
+    reconcile_charge_sessions,
 )
 from podpointclient.errors import (
     APIError, ApiConnectionError, AuthError, ChargeModeTransitionError,
@@ -29,6 +30,8 @@ from podpointclient.errors import (
     api_error_status,
 )
 from podpointclient.pod import Pod
+from podpointclient.manual_schedule import ManualSchedule
+from podpointclient.schedule import Schedule, ScheduleStatus
 
 
 def home_charger(ppid="HOME-1", unit_id=12):
@@ -396,6 +399,121 @@ async def test_schedule_smart_preferences_tariff_and_lock_operations():
     client.async_get_remote_lock.assert_awaited_with(home_model)
 
 
+def test_canonical_schedule_normalizes_both_apis_and_ignores_uid_for_equality():
+    home = ManualSchedule({
+        "uid": "HOME-UID", "startDay": 5, "startTime": "23:00:00",
+        "endDay": 6, "endTime": "06:00:00", "status": {"isActive": True},
+    })
+    legacy = Schedule(
+        uid="LEGACY-UID", start_day=5, start_time="23:00:00",
+        end_day=6, end_time="06:00:00", status=ScheduleStatus(is_active=True),
+    )
+
+    normalized_home = charger_schedule_from_home(home)
+    normalized_legacy = charger_schedule_from_legacy(legacy)
+
+    assert normalized_home == normalized_legacy
+    assert normalized_home.uid == "HOME-UID"
+    assert normalized_legacy.uid == "LEGACY-UID"
+    assert normalized_home.manual_dict == {
+        "uid": "HOME-UID", "startDay": 5, "startTime": "23:00:00",
+        "endDay": 6, "endTime": "06:00:00", "status": {"isActive": True},
+    }
+
+
+@pytest.mark.asyncio
+async def test_canonical_schedule_reads_dispatch_and_normalize():
+    client = AsyncMock()
+    home_model = home_charger()
+    legacy_model = legacy_pod()
+    home_item = ManualSchedule({
+        "uid": "H", "startDay": 1, "startTime": "01:00:00",
+        "endDay": 1, "endTime": "02:00:00", "status": {"isActive": True},
+    })
+    legacy_item = Schedule(
+        uid="L", start_day=2, start_time="03:00:00", end_day=2,
+        end_time="04:00:00", status=ScheduleStatus(is_active=False),
+    )
+    legacy_model.charge_schedules = [legacy_item]
+    client.async_get_manual_schedules.return_value = [home_item]
+    domain = ChargerDomain(client)
+
+    home_result = await domain.async_get_schedules(
+        charger_ref_from_charger(home_model)
+    )
+    legacy_result = await domain.async_get_schedules(
+        charger_ref_from_pod(legacy_model)
+    )
+
+    assert home_result == [
+        ChargerSchedule(1, "01:00:00", 1, "02:00:00", True, "different")
+    ]
+    assert legacy_result == [
+        ChargerSchedule(2, "03:00:00", 2, "04:00:00", False)
+    ]
+    client.async_get_manual_schedules.assert_awaited_once_with(home_model)
+    client.async_get_pod.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_canonical_schedule_replace_is_full_home_only_operation():
+    client = AsyncMock()
+    model = home_charger()
+    charger = charger_ref_from_charger(model)
+    schedules = [
+        ChargerSchedule(day, "01:00:00", day, "02:00:00", True, f"old-{day}")
+        for day in range(1, 8)
+    ]
+    client.async_set_manual_schedules.return_value = [
+        ManualSchedule({
+            **item.manual_dict,
+            "uid": f"new-{item.start_day}",
+        })
+        for item in schedules
+    ]
+    client.async_get_delegated_control.return_value = SimpleNamespace(
+        status="INACTIVE"
+    )
+
+    saved = await ChargerDomain(client).async_replace_schedules(charger, schedules)
+
+    assert saved == schedules
+    assert [item.uid for item in saved] == [f"new-{day}" for day in range(1, 8)]
+    client.async_set_manual_schedules.assert_awaited_once_with(
+        model, [item.manual_dict for item in schedules]
+    )
+    client.async_get_delegated_control.assert_awaited_once_with(model)
+    assert charger.capability(
+        ChargerCapability.FULL_SCHEDULE_REPLACEMENT
+    ) is CapabilitySupport.SUPPORTED
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await ChargerDomain(client).async_replace_schedules(legacy_ref(), schedules)
+
+
+@pytest.mark.asyncio
+async def test_canonical_schedule_replace_rejects_active_smart_charging():
+    client = AsyncMock()
+    client.async_get_delegated_control.return_value = SimpleNamespace(status="ACTIVE")
+    schedules = [
+        ChargerSchedule(day, "01:00:00", day, "02:00:00", True, f"uid-{day}")
+        for day in range(1, 8)
+    ]
+
+    with pytest.raises(ChargeModeTransitionError):
+        await ChargerDomain(client).async_replace_schedules(home_ref(), schedules)
+
+    client.async_set_manual_schedules.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_canonical_schedule_replace_requires_canonical_values():
+    client = AsyncMock()
+    with pytest.raises(RequestValidationError):
+        await ChargerDomain(client).async_replace_schedules(home_ref(), [{}])
+    client.async_set_manual_schedules.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_legacy_schedules_distinguish_empty_unsupported_and_transient():
     client = AsyncMock()
@@ -642,6 +760,8 @@ async def test_client_exposes_new_domain_delegates():
     domain = AsyncMock(spec=ChargerDomain)
     domain.async_charger_credentials_verified.return_value = True
     domain.async_get_basic_charging_mode.return_value = BasicChargingMode.SCHEDULED
+    domain.async_get_schedules.return_value = ["schedule"]
+    domain.async_replace_schedules.return_value = ["saved schedule"]
     domain.async_get_legacy_schedules.return_value = []
     domain.async_get_completed_charge_sessions.return_value = {"HOME": []}
     domain.async_get_live_charge_sessions.return_value = {"HOME": []}
@@ -663,6 +783,12 @@ async def test_client_exposes_new_domain_delegates():
     assert await client.async_get_charger_legacy_schedules(
         chargers[0], refresh=True
     ) == []
+    assert await client.async_get_charger_schedules(
+        chargers[0], refresh=True
+    ) == ["schedule"]
+    assert await client.async_replace_charger_schedules(
+        chargers[0], ["input"]
+    ) == ["saved schedule"]
     assert await client.async_get_completed_charge_sessions(
         chargers, date(2026, 8, 1), date(2026, 8, 2)
     ) == {"HOME": []}
@@ -677,6 +803,12 @@ async def test_client_exposes_new_domain_delegates():
     )
     domain.async_get_legacy_schedules.assert_awaited_once_with(
         chargers[0], refresh=True
+    )
+    domain.async_get_schedules.assert_awaited_once_with(
+        chargers[0], refresh=True
+    )
+    domain.async_replace_schedules.assert_awaited_once_with(
+        chargers[0], ["input"]
     )
 
 

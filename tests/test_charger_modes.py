@@ -131,6 +131,46 @@ async def test_schedule_replacement_requires_all_seven_valid_days():
             await client.async_set_charger_smart_charging(charger, enabled="yes")
 
 
+@pytest.mark.parametrize(("change_day", "updates", "message"), [
+    (1, {"endDay": 3}, "startDay or the following day"),
+    (1, {"startTime": "23:00:00", "endTime": "06:00:00"},
+     "must end on the following day"),
+    (1, {"startTime": "06:00:00", "endDay": 2, "endTime": "07:00:00"},
+     "must not span more than 24 hours"),
+    (5, {"startTime": "23:00:00", "endDay": 6, "endTime": "06:00:00"},
+     "following day's startTime"),
+    (7, {"startTime": "23:00:00", "endDay": 1, "endTime": "03:00:00"},
+     "following day's startTime"),
+])
+def test_schedule_replacement_rejects_invalid_duration_and_overlap(
+    change_day,
+    updates,
+    message,
+):
+    schedules = captured_schedules()
+    schedules[change_day - 1].update(updates)
+    if change_day == 5:
+        schedules[5]["startTime"] = "05:00:00"
+    if change_day == 7:
+        schedules[0]["startTime"] = "02:30:00"
+
+    with pytest.raises(RequestValidationError, match=message):
+        PodPointClient._validate_manual_schedules(schedules)
+
+
+def test_schedule_replacement_accepts_boundaries_and_sunday_wraparound():
+    schedules = captured_schedules()
+    schedules[4].update({
+        "startTime": "23:00:00", "endDay": 6, "endTime": "06:00:00",
+    })
+    schedules[5]["startTime"] = "06:00:00"
+    schedules[6].update({
+        "startTime": "23:00:00", "endDay": 1, "endTime": "02:30:00",
+    })
+
+    PodPointClient._validate_manual_schedules(schedules)
+
+
 @pytest.mark.asyncio
 async def test_always_on_stops_without_changing_active_smart_charging():
     charger = Charger({"ppid": "TEST-PPID-1"})

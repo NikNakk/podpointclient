@@ -191,16 +191,52 @@ persistent-mode method. The existing smart-charging prerequisite checks remain
 in force. A legacy set attempt raises `UnsupportedCapabilityError`; legacy mode
 reads remain supported.
 
-Legacy schedules are snapshots included in legacy charger discovery. Calling
-`async_get_charger_legacy_schedules(charger)` returns that snapshot without a
-duplicate Pod request. Rediscover chargers during a polling cycle to obtain a
-new snapshot, or pass `refresh=True` when an explicit out-of-cycle refresh is
-required. Schedule values are not retained in a separate long-lived cache.
+### Canonical schedules
+
+Both Pod Point APIs expose the same underlying seven schedule records. Use
+`async_get_charger_schedules(charger)` to receive `ChargerSchedule` entries
+without selecting an API. Home-backed canonical chargers fetch the manual
+schedule endpoint; legacy-backed chargers reuse the schedule snapshot retained
+during discovery. Rediscover legacy chargers during a polling cycle to obtain a
+new snapshot, or pass `refresh=True` for an explicit out-of-cycle refresh.
+
+`ChargerSchedule` normalizes `start_day`, `start_time`, `end_day`, `end_time`,
+and `is_active`. It also retains `uid` for endpoint round trips and diagnostics,
+but replacement regenerates all seven UIDs. Equality therefore ignores `uid`;
+do not use it as stable weekday or schedule identity.
+
+Full read-modify-replace is supported for Home-backed canonical chargers:
+
+```python
+from dataclasses import replace
+
+schedules = await client.async_get_charger_schedules(charger)
+schedules[0] = replace(schedules[0], is_active=False)
+saved = await client.async_replace_charger_schedules(charger, schedules)
+```
+
+Replacement requires all seven entries, including their fetched UIDs, and
+delegated smart charging must be inactive. A legacy-backed canonical charger
+raises `UnsupportedCapabilityError` for full replacement because the legacy
+write endpoint only supports its historical all-week enable/disable reset.
+That narrower operation remains available as
+`async_set_charger_legacy_schedule(charger, enabled)`.
+
+Validation permits one same-day or cross-midnight interval starting on each
+day. An interval may end only on its start day or the immediately following day
+and may not exceed 24 hours. A cross-midnight end must be no later than the
+following day's start, including Sunday-to-Monday; equal boundary times are
+valid. Invalid collections raise `RequestValidationError` rather than being
+silently adjusted.
+
+The endpoint-specific `async_get_charger_legacy_schedules(charger)` continues
+to return the retained legacy snapshot without a duplicate Pod request.
+Schedule values are not retained in a separate long-lived cache.
 
 Boost reads return `BoostState`; charge history returns `ChargeSession`. These
 small canonical models normalize the fields that differ between APIs while
-retaining the raw source response for diagnostics. Tariffs, manual schedules,
-delegated controls, preferences, remote locks, vehicles, and firmware continue
+retaining the raw source response for diagnostics. Tariffs, delegated controls,
+preferences, remote locks, vehicles, and firmware continue
 to return their focused endpoint models because those feature schemas do not
 need false cross-API equivalents.
 
@@ -228,6 +264,8 @@ Method | Description
 `account_capability(capability)` | *Get tri-state support for an account-level capability.*
 `async_get_basic_charging_mode(charger, boost_state=None)` | *Get scheduled, always-on, or timed-boost basic mode across both APIs.*
 `async_set_basic_charging_mode(charger, mode)` | *Set persistent scheduled or always-on Home basic mode.*
+`async_get_charger_schedules(charger, refresh=False)` | *Get canonical schedule entries through either backing API.*
+`async_replace_charger_schedules(charger, schedules)` | *Replace all seven schedules for a Home-backed canonical charger.*
 `async_get_charger_state(charger)` | *Get normalized state, last-seen time, legacy RSSI, and source-qualified connection quality.*
 `async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
 `async_get_charger_legacy_schedules(charger, refresh=False)` | *Get the discovery schedule snapshot without a duplicate request, with explicit refresh available.*

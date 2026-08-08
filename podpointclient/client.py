@@ -159,6 +159,14 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         """Set scheduled or always-on basic charging through the domain API."""
         return await self.domain.async_set_basic_charging_mode(charger, mode)
 
+    async def async_get_charger_schedules(self, charger, *, refresh=False):
+        """Get canonical schedules without selecting a wire API."""
+        return await self.domain.async_get_schedules(charger, refresh=refresh)
+
+    async def async_replace_charger_schedules(self, charger, schedules):
+        """Replace all seven canonical schedules where fully supported."""
+        return await self.domain.async_replace_schedules(charger, schedules)
+
     async def async_get_charger_legacy_schedules(self, charger, *, refresh=False):
         """Get discovery schedules, optionally refreshing their legacy Pod."""
         return await self.domain.async_get_legacy_schedules(
@@ -1226,6 +1234,7 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
                 "schedules must contain all seven days because this operation replaces them"
             )
         start_days = set()
+        schedules_by_day = {}
         for schedule in schedules:
             if not isinstance(schedule, dict):
                 raise RequestValidationError(
@@ -1266,10 +1275,39 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
                     "schedule status.isActive must be a boolean"
                 )
             start_days.add(start_day)
+            schedules_by_day[start_day] = schedule
         if start_days != set(range(1, 8)):
             raise RequestValidationError(
                 "schedule startDay values must uniquely cover days 1-7"
             )
+
+        for start_day, schedule in schedules_by_day.items():
+            end_day = schedule["endDay"]
+            next_day = 1 if start_day == 7 else start_day + 1
+            if end_day not in (start_day, next_day):
+                raise RequestValidationError(
+                    "schedule endDay must be its startDay or the following day"
+                )
+
+            start_time = datetime.strptime(schedule["startTime"], "%H:%M:%S").time()
+            end_time = datetime.strptime(schedule["endTime"], "%H:%M:%S").time()
+            if end_day == start_day and end_time < start_time:
+                raise RequestValidationError(
+                    "a schedule ending before its startTime must end on the following day"
+                )
+            if end_day == next_day and end_time > start_time:
+                raise RequestValidationError(
+                    "a schedule must not span more than 24 hours"
+                )
+            if end_day == next_day:
+                following_start = datetime.strptime(
+                    schedules_by_day[next_day]["startTime"], "%H:%M:%S"
+                ).time()
+                if end_time > following_start:
+                    raise RequestValidationError(
+                        "a cross-midnight schedule must end no later than the "
+                        "following day's startTime"
+                    )
 
 
     def _schedule_data(self, enabled: bool) -> Dict[str, Any]:

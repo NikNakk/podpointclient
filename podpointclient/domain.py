@@ -15,9 +15,11 @@ from .charger_charge_override import ChargerChargeOverride
 from .connectivity_status import ConnectivityStatus
 from .connectivity_status_v2 import ConnectivityStatusV2
 from .errors import (
-    APIError, RequestValidationError, UnsupportedCapabilityError,
+    APIError, ChargeModeTransitionError, RequestValidationError,
+    UnsupportedCapabilityError,
     is_unsupported_api_error,
 )
+from .manual_schedule import ManualSchedule
 from .pod import Pod
 from .schedule import Schedule
 
@@ -54,6 +56,8 @@ class ChargerCapability(Enum):
     REMOTE_LOCK = "remote_lock"
     FIRMWARE = "firmware"
     BASIC_CHARGING_MODE = "basic_charging_mode"
+    SCHEDULES = "schedules"
+    FULL_SCHEDULE_REPLACEMENT = "full_schedule_replacement"
 
 
 class AccountCapability(Enum):
@@ -74,6 +78,35 @@ class BasicChargingMode(Enum):
     ALWAYS_ON = "always_on"
     TIMED_BOOST = "timed_boost"
     UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ChargerSchedule:
+    """One canonical charger schedule entry shared by both wire APIs.
+
+    ``uid`` is retained for endpoint round trips and diagnostics, but Pod Point
+    regenerates every UID whenever the seven-entry collection is replaced.
+    Consumers must not use it as stable schedule identity.
+    """
+
+    start_day: int
+    start_time: str
+    end_day: int
+    end_time: str
+    is_active: bool
+    uid: Optional[str] = field(default=None, compare=False)
+
+    @property
+    def manual_dict(self) -> Dict[str, Any]:
+        """Return the newer Home API representation."""
+        return {
+            "uid": self.uid,
+            "startDay": self.start_day,
+            "startTime": self.start_time,
+            "endDay": self.end_day,
+            "endTime": self.end_time,
+            "status": {"isActive": self.is_active},
+        }
 
 
 class ChargeSessionSource(Enum):
@@ -209,6 +242,7 @@ def _initial_charger_capabilities(source: ChargerSource, unit_id: Optional[int])
     else:
         for capability in (
             ChargerCapability.MANUAL_SCHEDULING,
+            ChargerCapability.FULL_SCHEDULE_REPLACEMENT,
             ChargerCapability.DELEGATED_SMART_CHARGING,
             ChargerCapability.SMART_CHARGING_PREFERENCES,
             ChargerCapability.TARIFFS,
@@ -324,6 +358,30 @@ def basic_charging_mode_from_boost(state: BoostState) -> BasicChargingMode:
     if state.timed:
         return BasicChargingMode.TIMED_BOOST
     return BasicChargingMode.ALWAYS_ON
+
+
+def charger_schedule_from_legacy(schedule: Schedule) -> ChargerSchedule:
+    """Normalize one schedule returned by legacy Pod discovery."""
+    return ChargerSchedule(
+        uid=schedule.uid,
+        start_day=schedule.start_day,
+        start_time=schedule.start_time,
+        end_day=schedule.end_day,
+        end_time=schedule.end_time,
+        is_active=schedule.status.is_active,
+    )
+
+
+def charger_schedule_from_home(schedule: ManualSchedule) -> ChargerSchedule:
+    """Normalize one manual schedule returned by the Home API."""
+    return ChargerSchedule(
+        uid=schedule.uid,
+        start_day=schedule.start_day,
+        start_time=schedule.start_time,
+        end_day=schedule.end_day,
+        end_time=schedule.end_time,
+        is_active=schedule.status.get("isActive", False),
+    )
 
 
 def _correlation_key(ppid: str, started_at: Optional[datetime]) -> str:
@@ -648,6 +706,57 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
                 return await self._client.async_delete_charger_charge_overrides(charger.raw)
             return await self._client.async_delete_charge_override(charger.raw)
         return await self._call(charger, ChargerCapability.TIMED_BOOST, operation)
+
+    async def async_get_schedules(
+        self, charger: ChargerRef, *, refresh: bool = False
+    ) -> List[ChargerSchedule]:
+        """Return canonical schedule entries using the charger's backing API."""
+        async def operation():
+            if charger.source is ChargerSource.HOME:
+                schedules = await self._client.async_get_manual_schedules(charger.raw)
+                return [charger_schedule_from_home(item) for item in schedules]
+            pod = charger.raw
+            if refresh and getattr(pod, "id", None) is not None:
+                pod = await self._client.async_get_pod(pod.id)
+            return [
+                charger_schedule_from_legacy(item)
+                for item in pod.charge_schedules
+            ]
+        return await self._call(charger, ChargerCapability.SCHEDULES, operation)
+
+    async def async_replace_schedules(
+        self, charger: ChargerRef, schedules: List[ChargerSchedule]
+    ) -> List[ChargerSchedule]:
+        """Replace all seven schedules through the full Home schedule API."""
+        if not isinstance(schedules, list) or not all(
+            isinstance(item, ChargerSchedule) for item in schedules
+        ):
+            raise RequestValidationError(
+                "schedules must be a list of ChargerSchedule objects"
+            )
+        if charger.source is not ChargerSource.HOME:
+            raise UnsupportedCapabilityError(
+                ChargerCapability.FULL_SCHEDULE_REPLACEMENT, charger.ppid
+            )
+
+        async def operation():
+            delegated_control = await self._client.async_get_delegated_control(
+                charger.raw
+            )
+            status = (
+                delegated_control.status if delegated_control is not None else None
+            )
+            if status != "INACTIVE":
+                raise ChargeModeTransitionError(
+                    "Schedules cannot be replaced while smart charging is active"
+                )
+            saved = await self._client.async_set_manual_schedules(
+                charger.raw, [item.manual_dict for item in schedules]
+            )
+            return [charger_schedule_from_home(item) for item in saved]
+        return await self._call(
+            charger, ChargerCapability.FULL_SCHEDULE_REPLACEMENT, operation
+        )
 
     async def async_get_legacy_schedules(
         self, charger: ChargerRef, *, refresh: bool = False

@@ -1,5 +1,22 @@
 # Pod Point Client Changelog
 
+## v2.0.0b1
+
+* Add `ChargerSchedule`, a canonical schedule entry shared by the Home and
+  legacy APIs. Schedule equality deliberately ignores server-generated UIDs.
+* Add source-independent `async_get_charger_schedules()` reads and full
+  `async_replace_charger_schedules()` replacement for Home-backed canonical
+  chargers.
+* Retain the legacy all-week enable/disable operation as an explicitly narrower
+  operation rather than presenting it as full schedule replacement.
+* Add canonical schedule-read and full-replacement capability observations.
+* Document that Home and legacy endpoints expose the same underlying seven
+  schedule records, that every replacement regenerates their UIDs, and that
+  Home replacement requires delegated smart charging to be inactive.
+* Validate same-day and cross-midnight schedule duration, adjacent end days,
+  and next-day overlap across the circular week.
+* Begin the version 2 prerelease series for the expanded canonical domain API.
+
 ## v1.7.0b9
 
 * Avoid a redundant legacy Pod request by returning schedules retained by
