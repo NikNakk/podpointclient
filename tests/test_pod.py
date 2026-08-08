@@ -6,7 +6,7 @@ import podpointclient
 from podpointclient.pod import Pod, Socket, StatusKeyName, StatusName, Firmware
 import json
 from datetime import datetime, timezone, timedelta
-import pytz
+from types import SimpleNamespace
 
 from podpointclient.schedule import Schedule, ScheduleStatus
 
@@ -57,6 +57,20 @@ def test_empty_pod():
     assert pod.total_charge_seconds == 0
     assert pod.current_kwh == 0.0
     assert pod.total_cost == 0
+
+
+def test_unrecognised_charge_mode_logs_warning(caplog):
+    pod = Pod(data={})
+    pod.charge_override = SimpleNamespace(
+        ppid="PSL-123456",
+        active=False,
+        requested_at=None,
+        received_at=None,
+        ends_at=datetime.now(timezone.utc),
+    )
+
+    assert pod.charge_mode is None
+    assert "Unable to calculate charge mode" in caplog.text
 
 
 def test_happy_path():

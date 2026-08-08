@@ -18,7 +18,7 @@ spec:
 		tests
 
 lint:
-	pylint ./podpointclient
+	python3 -m pylint ./podpointclient example.py --persistent=n
 
 clean:
 	rm -rf dist/*

@@ -94,7 +94,11 @@ class FirmwareFactory:
         """Build a list of firmware objects based off of a response from pod point"""
         firmwares = []
 
-        firmware_data = firmware_response.get('data', None) if firmware_response is not None else None
+        firmware_data = (
+            firmware_response.get('data', None)
+            if firmware_response is not None
+            else None
+        )
         if firmware_data is None:
             return firmwares
 

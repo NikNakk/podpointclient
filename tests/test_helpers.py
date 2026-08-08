@@ -1,7 +1,7 @@
 from re import X
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import pytest
-import pytz
 from podpointclient.helpers.functions import auth_headers, lazy_convert_to_datetime, lazy_iso_format_datetime
 import logging
 
@@ -23,11 +23,11 @@ def test_lazy_convert_to_datetime(caplog):
     assert lazy_convert_to_datetime(False) is None
     assert lazy_convert_to_datetime({}) is None
 
-    ams = pytz.timezone("Europe/Amsterdam")
+    ams = ZoneInfo("Europe/Amsterdam")
 
     # Successful conversions
     assert lazy_convert_to_datetime("2022-01-25T09:00:00+00:00:00") == datetime(2022,1,25,9,0,0, tzinfo=timezone.utc)
-    assert lazy_convert_to_datetime("2022-01-25T09:00:00+01:00:00") == ams.localize(datetime(2022,1,25,9,0,0))
+    assert lazy_convert_to_datetime("2022-01-25T09:00:00+01:00:00") == datetime(2022,1,25,9,0,0, tzinfo=ams)
     assert lazy_convert_to_datetime("2022-01-25T09:00:00Z") == datetime(2022,1,25,9,0,0, tzinfo=timezone.utc)
 
 def test_lazy_iso_format_datetime():

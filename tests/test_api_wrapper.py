@@ -1,18 +1,12 @@
 from urllib import response
-import asyncio
 import aiohttp
 from podpointclient.errors import APIError, ApiConnectionError
-from podpointclient.helpers.api_wrapper import APIWrapper, timeout_context
+from podpointclient.helpers.api_wrapper import APIWrapper
 import pytest
 from aioresponses import aioresponses
 
-
-def test_uses_builtin_timeout_when_available():
-  if hasattr(asyncio, "timeout"):
-    assert timeout_context is asyncio.timeout
-
 @pytest.mark.asyncio
-async def test_get(aiohttp_client):
+async def test_get():
   with aioresponses() as m:
     m.get('https://google.com/api/v1/test', status=200, body="OK")
 
@@ -23,7 +17,7 @@ async def test_get(aiohttp_client):
         assert "OK" == await result.text()
 
 @pytest.mark.asyncio
-async def test_post_with_dictionary_data(aiohttp_client):
+async def test_post_with_dictionary_data():
   with aioresponses() as m:
     m.post('https://google.com/api/v1/test', body="OK")
 
@@ -34,7 +28,7 @@ async def test_post_with_dictionary_data(aiohttp_client):
         assert "OK" == await result.text()
 
 @pytest.mark.asyncio
-async def test_post_with_string_data(aiohttp_client):
+async def test_post_with_string_data():
   with aioresponses() as m:
     m.post('https://google.com/api/v1/test', body="OK")
 
@@ -45,7 +39,7 @@ async def test_post_with_string_data(aiohttp_client):
         assert "OK" == await result.text()
 
 @pytest.mark.asyncio
-async def test_put(aiohttp_client):
+async def test_put():
   with aioresponses() as m:
     m.put('https://google.com/api/v1/test?foo=bar', body="OK")
 
@@ -56,7 +50,7 @@ async def test_put(aiohttp_client):
         assert "OK" == await result.text()
 
 @pytest.mark.asyncio
-async def test_delete(aiohttp_client):
+async def test_delete():
   with aioresponses() as m:
     m.delete('https://google.com/api/v1/test?foo=bar', status=204, body="OK")
 
@@ -67,7 +61,7 @@ async def test_delete(aiohttp_client):
         assert "OK" == await result.text()
 
 @pytest.mark.asyncio
-async def test_401(aiohttp_client):
+async def test_401():
   with aioresponses() as m:
     m.get('https://google.com/api/v1/test?foo=bar', status=401, body="AuthError")
 
@@ -79,8 +73,8 @@ async def test_401(aiohttp_client):
 
         assert "(401, 'Response body omitted for security')" in str(exc_info.value)
 
-@pytest.mark.asyncio     
-async def test_connection_errors(aiohttp_client):
+@pytest.mark.asyncio
+async def test_connection_errors():
   with aioresponses() as m:
     m.get('https://google.com/api/v1/test?foo=bar', timeout=True)
 

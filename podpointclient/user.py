@@ -1,11 +1,10 @@
-"""Charge class, represents a 'Charge' from the podpoint apis"""
+"""User-related representations returned by the Pod Point APIs."""
 
-from datetime import datetime
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
-from .helpers.functions import lazy_convert_to_datetime
-from .pod import Pod
 import json
+from dataclasses import dataclass
+from typing import Any, Dict, List
+
+from .pod import Pod
 
 @dataclass
 class Address:
@@ -111,10 +110,14 @@ class User:
         self.role: str           = data.get('role', None)
         self.hasHomeCharge: int  = data.get('hasHomeCharge', 0)
         self.locale: str         = data.get('locale', None)
-        self.preferences: List[self.UserPreferences] = []
+        self.preferences: List[User.UserPreference] = []
 
         for preference_data in data.get('preferences', []):
-            self.preferences.append(self.UserPreference(unitOfDistance=preference_data.get('unitOfDistance')))
+            self.preferences.append(
+                self.UserPreference(
+                    unitOfDistance=preference_data.get('unitOfDistance')
+                )
+            )
 
         self.account: self.UserAccount = None
         account_data = data.get('account', {})
@@ -155,7 +158,7 @@ class User:
                 half_size = make_logo_data.get('@1x', None),
                 seventy_five_percent = make_logo_data.get('@2x', None),
                 original = make_logo_data.get('@3x', None)
-            ) 
+            )
             make = VehicleMake(
                 id = make_data.get('id', None),
                 name = make_data.get('name', None),
@@ -194,7 +197,7 @@ class User:
                 preference.dict
             )
 
-        dict = {
+        dictionary = {
             "id": self.id,
             "email": self.email,
             "first_name": self.first_name,
@@ -206,15 +209,15 @@ class User:
         }
 
         if self.account:
-            dict["account"] = self.account.dict
+            dictionary["account"] = self.account.dict
 
         if self.vehicle:
-            dict["vehicle"] = self.vehicle.dict
+            dictionary["vehicle"] = self.vehicle.dict
 
         if self.unit:
-            dict["unit"] = self.unit.dict
+            dictionary["unit"] = self.unit.dict
 
-        return dict
+        return dictionary
 
     def to_json(self):
         """JSON representation of a User object"""

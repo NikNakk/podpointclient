@@ -14,7 +14,7 @@ EMAIL: str = 'test@example.com'
 PASSWORD: str = 'passw0rd!'
 
 @pytest.mark.asyncio
-async def test_create_happy_path(aiohttp_client):
+async def test_create_happy_path():
     session_response = {
         "sessions": {
             "id": "5678",

@@ -1,10 +1,10 @@
 """Representation of a Pod from pod point"""
+import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Any, List, Union
-from enum import auto
-import json
-from strenum import StrEnum, KebabCaseStrEnum
+from enum import StrEnum
+from typing import Any, Dict, List, Union
 
 from .helpers.functions import lazy_convert_to_datetime, lazy_iso_format_datetime
 from .schedule import Schedule, ScheduleStatus
@@ -12,6 +12,9 @@ from .charge import Charge
 from .charge_mode import ChargeMode
 from .charge_override import ChargeOverride
 from .connectivity_status import ConnectivityStatus
+
+
+_LOGGER = logging.getLogger(__package__)
 
 
 class StatusName(StrEnum):
@@ -23,13 +26,13 @@ class StatusName(StrEnum):
     SUSPENDED_EV   = "Charged*"
 
 
-class StatusKeyName(KebabCaseStrEnum):
+class StatusKeyName(StrEnum):
     """"An ENUM representing the status key names for a pod connector/door"""
-    AVAILABLE      = auto()
-    UNAVAILABLE    = auto()
-    CHARGING       = auto()
-    OUT_OF_SERVICE = auto()
-    SUSPENDED_EV   = auto()
+    AVAILABLE      = "available"
+    UNAVAILABLE    = "unavailable"
+    CHARGING       = "charging"
+    OUT_OF_SERVICE = "out-of-service"
+    SUSPENDED_EV   = "suspended-ev"
 
 
 @dataclass
@@ -146,7 +149,7 @@ class Firmware:
 
         if self.version_info:
             dictionary["version_info"] = self.version_info.dict
-            
+
         if self.update_status:
             dictionary["update_status"] = self.update_status.dict
 
@@ -308,8 +311,14 @@ class Pod:
             "charge_override": None,
             "offering_energy": self.offering_energy,
             "last_message_at": lazy_iso_format_datetime(self.last_message_at),
-            "charging_state": self.charging_state if self.charging_state is not None else "Unknown",
-            "connectivity_status": self.connectivity_status.dict if self.connectivity_status is not None else None,
+            "charging_state": (
+                self.charging_state if self.charging_state is not None else "Unknown"
+            ),
+            "connectivity_status": (
+                self.connectivity_status.dict
+                if self.connectivity_status is not None
+                else None
+            ),
         }
 
         for status in self.statuses:
@@ -334,7 +343,7 @@ class Pod:
     def to_json(self) -> str:
         """JSON representation of a Pod"""
         return json.dumps(self.dict, ensure_ascii=False)
-    
+
     @property
     def charge_mode(self) -> ChargeMode:
         """what is the current charge override mode?"""
@@ -346,12 +355,15 @@ class Pod:
         if override.active:
             return ChargeMode.OVERRIDE
 
-        elif override.requested_at is not None and override.received_at is not None and override.ends_at is None:
+        if (
+            override.requested_at is not None
+            and override.received_at is not None
+            and override.ends_at is None
+        ):
             return ChargeMode.MANUAL
 
-        else:
-            _LOGGER.warn("Unable to caclculate charge mode")
-            return None
+        _LOGGER.warning("Unable to calculate charge mode")
+        return None
 
     @dataclass
     class Model:

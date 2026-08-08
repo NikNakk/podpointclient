@@ -1,10 +1,8 @@
-pytest==6.2.5
+pytest>=8,<9
 aioresponses
 aiohttp<3.13
 freezegun
-pytz==2022.1
-pytest-aiohttp==0.3.0
-pytest-asyncio==0.18.3
+pylint>=4,<5
+pytest-asyncio>=0.24,<1
 pytest-cov
 pytest-timeout
-async-timeout

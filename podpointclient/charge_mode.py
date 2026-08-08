@@ -1,4 +1,7 @@
-from strenum import StrEnum
+"""Canonical legacy charge-mode values."""
+
+from enum import StrEnum
+
 
 class ChargeMode(StrEnum):
     """An ENUM representing the current charge mode"""

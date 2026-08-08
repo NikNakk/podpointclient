@@ -7,10 +7,10 @@ def test_direct_runtime_imports_are_declared():
     project_contents = Path("pyproject.toml").read_text(encoding="utf-8")
 
     assert '"aiohttp>=3"' in project_contents
-    assert "async-timeout>=4" in project_contents
-    assert "python_version < '3.11'" in project_contents
-    assert '"StrEnum>=0.4,<0.5"' in project_contents
-    assert '"pytz"' in project_contents
+    assert '"tzdata"' in project_contents
+    assert "async-timeout" not in project_contents
+    assert "StrEnum" not in project_contents
+    assert "pytz" not in project_contents
     assert '"pyt"' not in project_contents
 
 
@@ -27,9 +27,10 @@ def test_fork_distribution_metadata_preserves_attribution():
     assert 'include = ["podpointclient*"]' in project_contents
 
 
-def test_setup_py_is_only_a_compatibility_shim():
-    """Keep a legacy entry point without duplicating project metadata."""
-    setup_contents = Path("setup.py").read_text(encoding="utf-8")
+def test_python_floor_and_legacy_setup_shim_removal():
+    """Require Python 3.12 without retaining legacy build entry points."""
+    project_contents = Path("pyproject.toml").read_text(encoding="utf-8")
 
-    assert "setup()" in setup_contents
-    assert "podpointclient-niknakk" not in setup_contents
+    assert 'requires-python = ">=3.12"' in project_contents
+    assert '"Programming Language :: Python :: 3.12"' in project_contents
+    assert not Path("setup.py").exists()

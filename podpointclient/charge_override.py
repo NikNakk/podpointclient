@@ -1,8 +1,9 @@
 """Charge Override class, represents a 'Charge Override' from the podpoint apis"""
 
+import json
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
+from typing import Any, Dict
+
 from .helpers.functions import lazy_convert_to_datetime, lazy_iso_format_datetime
 
 class ChargeOverride:

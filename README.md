@@ -16,6 +16,8 @@ for links to the upstream repository.
 
 ## Installation
 
+Python 3.12 or newer is required.
+
 ```bash
 pip install podpointclient-niknakk
 ```

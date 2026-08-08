@@ -4,9 +4,9 @@ import math
 import re
 from typing import Dict, Any, List, Union
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiohttp
-import pytz
 
 from .endpoints import (
     ACCESS_STATUS, AGREEMENTS, API_BASE_URL, AUTH, CHARGE_OVERRIDE,
@@ -69,7 +69,11 @@ _LOGGER: logging.Logger = logging.getLogger(__package__)
 HEADERS = {"Content-type": "application/json; charset=UTF-8"}
 DEFAULT_POD_INCLUDES = ["statuses", "price", "model",
                     "unit_connectors", "charge_schedules", "charge_override"]
-DEFAULT_USER_INCLUDES = ["account", "vehicle", "vehicle.make", "unit.pod.unit_connectors", "unit.pod.statuses", "unit.pod.model", "unit.pod.charge_schedules", "unit.pod.charge_override"]
+DEFAULT_USER_INCLUDES = [
+    "account", "vehicle", "vehicle.make", "unit.pod.unit_connectors",
+    "unit.pod.statuses", "unit.pod.model", "unit.pod.charge_schedules",
+    "unit.pod.charge_override"
+]
 DEFAULT_REWARD_TRANSACTION_INCLUDES = [
     "MILES_CHARGED", "PAYOUT", "PAYOUT_REFUNDED", "BONUS_MILES"
 ]
@@ -380,7 +384,7 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
     async def async_get_firmware(self, pod: Pod) -> List[Firmware]:
         """Get firmware information for a given unit."""
         await self.auth.async_update_access_token()
-        
+
         response = await self.api_wrapper.get(
             url=self._url_from_path(
                 path=f"{UNITS}/{pod.unit_id}{FIRMWARE}"),
@@ -419,7 +423,7 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
 
     async def async_get_charge_override(self, pod: Pod) -> Union[None, ChargeOverride]:
         await self.auth.async_update_access_token()
-        
+
         response = await self.api_wrapper.get(
             url=self._url_from_path(
                 path=f"{UNITS}/{pod.unit_id}{CHARGE_OVERRIDE}"),
@@ -461,7 +465,9 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
 
         json = await self._handle_json_response(response=response)
 
-        return ConnectivityStatusFactory().build_connectivity_status(connectivity_status_response=json)
+        return ConnectivityStatusFactory().build_connectivity_status(
+            connectivity_status_response=json
+        )
 
     async def async_get_chargers(self) -> List[Charger]:
         """Get chargers from the newer API."""
@@ -782,7 +788,10 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
     ) -> List[ChargerChargeOverride]:
         """Create a charger override using a positive duration or explicit end time."""
         values = (hours, minutes, seconds)
-        if any(type(value) is not int or value < 0 for value in values):
+        if any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in values
+        ):
             raise RequestValidationError("override duration values must be non-negative integers")
         requested_at = requested_at or datetime.now(timezone.utc)
         self._validate_aware_datetime(requested_at, "requested_at")
@@ -951,8 +960,8 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         """Create or replace a charger tariff."""
         effective_value = self._date_value(effective_from, "effective_from")
         try:
-            pytz.timezone(timezone_name)
-        except (pytz.UnknownTimeZoneError, AttributeError, TypeError) as error:
+            ZoneInfo(timezone_name)
+        except (ZoneInfoNotFoundError, AttributeError, TypeError) as error:
             raise RequestValidationError("timezone_name must be a valid IANA timezone") from error
         if not isinstance(tariff_info, list):
             raise RequestValidationError("tariff_info must be a list")
@@ -963,7 +972,7 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         self._validate_tariff_periods(periods)
         if not supplier_id:
             raise RequestValidationError("supplier_id is required")
-        if type(smart_charging_supported) is not bool:
+        if not isinstance(smart_charging_supported, bool):
             raise RequestValidationError("smart_charging_supported must be a boolean")
 
         await self.auth.async_update_access_token()
@@ -1016,12 +1025,25 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
                 "Basic charging mode is unavailable while smart charging is active"
             )
 
-    async def async_set_charge_override(self, pod:Pod, hours:int=0, minutes:int=0, seconds:int=0) -> ChargeOverride:
+    async def async_set_charge_override(
+        self,
+        pod: Pod,
+        hours: int = 0,
+        minutes: int = 0,
+        seconds: int = 0
+    ) -> ChargeOverride:
+        """Set a timed charge override for a legacy pod."""
         await self.auth.async_update_access_token()
 
-        valid_hours = (hours is not None and type(hours) is int and hours >= 0)
-        valid_minutes = (minutes is not None and type(minutes) is int  and minutes >= 0)
-        valid_seconds = (seconds is not None and type(seconds) is int  and seconds >= 0)
+        valid_hours = (
+            isinstance(hours, int) and not isinstance(hours, bool) and hours >= 0
+        )
+        valid_minutes = (
+            isinstance(minutes, int) and not isinstance(minutes, bool) and minutes >= 0
+        )
+        valid_seconds = (
+            isinstance(seconds, int) and not isinstance(seconds, bool) and seconds >= 0
+        )
         valid = (
             valid_hours
             and valid_minutes
@@ -1035,7 +1057,7 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
 
         if valid is False:
             raise ChargeOverrideValidationError()
-        
+
         now = datetime.now().astimezone()
         ends_at = now + timedelta(hours=hours, minutes=minutes, seconds=seconds)
         datetime_format_string = "%Y-%m-%dT%H:%M:%S%z"
@@ -1062,13 +1084,15 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         await self.auth.async_update_access_token()
 
         body = {
-            "requested_at": datetime.now().astimezone().strftime("%Y-%m-%dT%H:%M:%S%z") #2023-04-25T09:35:34+01:00
+            "requested_at": datetime.now().astimezone().strftime(
+                "%Y-%m-%dT%H:%M:%S%z"
+            )
         }
 
         response = await self._async_set_charge_mode(pod, body)
 
         expected_response = (
-            response.ppid == pod.ppid 
+            response.ppid == pod.ppid
             and response.requested_at is not None
             and response.received_at is not None
             and response.ends_at is None)
@@ -1087,7 +1111,6 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
 
         return response.status == 204
 
- 
     async def _async_set_charge_mode(self, pod, body) -> ChargeMode:
         """Given a body object, set the charge mode for a user's pod"""
         response = await self.api_wrapper.put(

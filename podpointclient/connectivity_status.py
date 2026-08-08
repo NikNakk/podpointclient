@@ -1,10 +1,11 @@
-"""Connectivity State class, represents a 'Connectivity State' from the podpoint apis"""
+"""Connectivity-state representations returned by the Pod Point APIs."""
 
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
-from dataclasses import dataclass, field
-from .helpers.functions import lazy_convert_to_datetime, lazy_iso_format_datetime
 import json
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Dict, List
+
+from .helpers.functions import lazy_convert_to_datetime, lazy_iso_format_datetime
 
 # {
 # 	"ppid": "PSL-266056",
@@ -76,8 +77,12 @@ class Evse:
             self.protocol: str = data.get('protocol', None)
             self.connectivity_status: str = data.get('connectivityStatus', None)
             self.signal_strength:int = data.get('signalStrength', None)
-            self.last_message_at: datetime = lazy_convert_to_datetime(data.get('lastMessageAt', None))
-            self.connection_started_at: datetime = lazy_convert_to_datetime(data.get('connectionStartedAt', None))
+            self.last_message_at: datetime = lazy_convert_to_datetime(
+                data.get('lastMessageAt', None)
+            )
+            self.connection_started_at: datetime = lazy_convert_to_datetime(
+                data.get('connectionStartedAt', None)
+            )
             self.connection_quality: int = data.get('connectionQuality', None)
 
         @property
@@ -87,7 +92,9 @@ class Evse:
                 "connectivityStatus": self.connectivity_status,
                 "signalStrength": self.signal_strength,
                 "lastMessageAt": lazy_iso_format_datetime(self.last_message_at),
-                "connectionStartedAt": lazy_iso_format_datetime(self.connection_started_at),
+                "connectionStartedAt": lazy_iso_format_datetime(
+                    self.connection_started_at
+                ),
                 "connectionQuality": self.connection_quality
             }
 
@@ -111,10 +118,6 @@ class Evse:
                 "door": self.door,
                 "chargingState": self.charging_state
             }
-
-    def to_json(self):
-        """JSON representation of a ConnectivityState object"""
-        return json.dumps(self.dict, ensure_ascii=False)
 
     @dataclass
     class EnergyOfferStatus:
@@ -160,19 +163,6 @@ class ConnectivityStatus:
             "connected_components": self.connected_components,
             "evses": [evse.dict for evse in self.evses]
         }
-
-    @property
-    def connectivity_status(self):
-        """Return the connectivity status of the first evse"""
-        evse = self.evses[0]
-        if evse is None:
-            return None
-
-        connectivity_state = evse.connectivity_state
-        if connectivity_state is None:
-            return None
-
-        return connectivity_state.connectivity_status
 
     @property
     def connectivity_status(self):

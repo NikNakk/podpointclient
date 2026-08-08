@@ -12,7 +12,6 @@ import pytest
 from datetime import datetime, timezone
 from freezegun import freeze_time
 import json
-import pytz
 from datetime import timedelta
 
 from podpointclient.endpoints import GOOGLE_BASE_URL, PASSWORD_VERIFY, API_BASE_URL, AUTH, CHARGE_SCHEDULES, CHARGES, FIRMWARE, PODS, SESSIONS, UNITS, USERS, CHARGE_OVERRIDE, MOBILE_API_BASE_URL, CHARGERS, CONNECTIVITY_STATUS

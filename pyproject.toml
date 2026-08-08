@@ -10,7 +10,7 @@ name = "podpointclient-niknakk"
 dynamic = ["version"]
 description = "A domain-level and endpoint-specific client for Pod Point home chargers"
 readme = {file = "README.md", content-type = "text/markdown"}
-requires-python = ">=3.7"
+requires-python = ">=3.12"
 license = "MIT"
 authors = [
     {name = "Matthew Rayner", email = "hello@rayner.io"},
@@ -21,13 +21,12 @@ maintainers = [
 keywords = ["Pod Point", "PodPoint", "EV", "charger"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
 dependencies = [
     "aiohttp>=3",
-    "async-timeout>=4; python_version < '3.11'",
-    "StrEnum>=0.4,<0.5",
-    "pytz",
+    "tzdata",
 ]
 
 [project.urls]

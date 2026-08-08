@@ -24,6 +24,7 @@ def test_complete_charge_override():
         "received_at": "2022-01-01T00:00:00+00:00",
         "ends_at": "2022-01-01T03:02:01+00:00"
     }
+    assert json.loads(charge_override.to_json()) == charge_override.dict
 
     # Test active
     assert charge_override.active is True

@@ -9,7 +9,11 @@
 * Partition and merge mixed Home/legacy completed-history requests while
   retaining independent source capability observations.
 * Move package metadata to PEP 621, using an SPDX MIT license expression while
-  retaining `setup.py` only as a compatibility shim.
+  removing the legacy `setup.py` entry point.
+* Require Python 3.12 and replace `async-timeout`, third-party `StrEnum`, and
+  `pytz` compatibility dependencies with standard-library equivalents, using
+  Python's first-party `tzdata` package as a cross-platform timezone database.
+* Clean up runtime pylint findings and enforce a clean pylint run in CI.
 
 ## v1.7.0b4
 

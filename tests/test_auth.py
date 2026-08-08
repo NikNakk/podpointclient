@@ -60,7 +60,7 @@ async def test_access_token_not_set():
         assert auth.check_access_token() is False
 
 @pytest.mark.asyncio
-async def test_update_access_token_when_not_set(aiohttp_client):
+async def test_update_access_token_when_not_set():
     auth_response = {
         "expiresIn": "1234",
         "idToken": "1234",
@@ -89,7 +89,7 @@ async def test_update_access_token_when_not_set(aiohttp_client):
             assert auth.access_token_expiry > datetime.now()
 
 @pytest.mark.asyncio
-async def test_auth_with_session_error(aiohttp_client):
+async def test_auth_with_session_error():
     auth_response = {
         "expiresIn": "1234",
         "idToken": "1234",
@@ -116,7 +116,7 @@ async def test_auth_with_session_error(aiohttp_client):
             assert result is False
 
 @pytest.mark.asyncio
-async def test_auth_with_auth_error(aiohttp_client):
+async def test_auth_with_auth_error():
     auth_response = {
         "expiresIn": "1234",
         "idToken": "1234",
@@ -143,7 +143,7 @@ async def test_auth_with_auth_error(aiohttp_client):
                 assert result is False
 
 @pytest.mark.asyncio
-async def test_update_access_token_when_not_set(aiohttp_client):
+async def test_update_access_token_when_not_set():
     auth_response = {
         "expiresIn": "1234",
         "idToken": "1234",

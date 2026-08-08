@@ -1,3 +1,21 @@
 [HEADER]
 
-good-names=id
+good-names=id,json,batteryCapacity,startYear,endYear,hasHomeCharge,unitOfDistance
+
+[MESSAGES CONTROL]
+
+# Domain response objects are deliberately data-heavy and factory classes are
+# deliberately small. Requiring boilerplate docstrings and extra methods for
+# those objects makes the lint output less useful.
+disable=
+    duplicate-code,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-branches,
+    too-many-instance-attributes,
+    too-many-lines,
+    too-many-locals,
+    too-many-positional-arguments,
+    too-many-statements

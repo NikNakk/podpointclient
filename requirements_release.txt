@@ -1,6 +1,2 @@
-aiohttp>=3
-async-timeout>=4; python_version < "3.11"
-StrEnum
-pytz
 build>=1
 twine>=5

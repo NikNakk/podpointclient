@@ -6,11 +6,6 @@ import logging
 from socket import gaierror
 import aiohttp
 
-if hasattr(asyncio, "timeout"):
-    timeout_context = asyncio.timeout
-else:
-    from async_timeout import timeout as timeout_context
-
 from ..errors import APIError, AuthError, SessionError, ApiConnectionError
 from .redaction import RESPONSE_BODY_OMITTED, url_for_logging
 
@@ -130,7 +125,7 @@ class APIWrapper:
             params = {}
 
         try:
-            async with timeout_context(self._timeout):
+            async with asyncio.timeout(self._timeout):
                 start_time = time.time()
                 safe_url = url_for_logging(url)
                 _LOGGER.debug("%s %s", method.upper(), safe_url)

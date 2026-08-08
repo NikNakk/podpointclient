@@ -19,10 +19,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install test and release requirements
         run: python -m pip install -r requirements_test.txt -r requirements_release.txt
+
+      - name: Run pylint
+        run: python -m pylint podpointclient example.py --persistent=n
 
       - name: Run tests
         run: |
