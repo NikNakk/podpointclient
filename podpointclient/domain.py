@@ -115,11 +115,22 @@ class NormalizedStateValue:
 
 
 @dataclass(frozen=True)
+class ConnectionQualityDiagnostic:
+    """Source-qualified connection-quality value without cross-API scaling."""
+
+    raw: Optional[int]
+    source: ChargerSource
+
+
+@dataclass(frozen=True)
 class ChargerState:
     """API-independent connectivity and charging state."""
 
     connection: NormalizedStateValue
     charging: NormalizedStateValue
+    last_seen_at: Optional[datetime] = None
+    signal_strength_dbm: Optional[int] = None
+    connection_quality: Optional[ConnectionQualityDiagnostic] = None
 
 
 @dataclass(frozen=True)
@@ -511,13 +522,30 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
                 )
                 connection = status.connection_state if status else None
                 charging = status.charging_state if status else None
+                last_seen_at = status.last_seen_at if status else None
+                signal_strength_dbm = None
+                quality = status.connection_quality if status else None
             else:
                 status: ConnectivityStatus = (
                     await self._client.async_get_connectivity_status(charger.raw)
                 )
                 connection = status.connectivity_status if status else None
                 charging = status.charging_state if status else None
-            return ChargerState(normalize_state(connection), normalize_state(charging))
+                last_seen_at = status.last_message_at if status else None
+                signal_strength_dbm = status.signal_strength if status else None
+                quality = status.connection_quality if status else None
+            connection_quality = (
+                ConnectionQualityDiagnostic(quality, charger.source)
+                if quality is not None
+                else None
+            )
+            return ChargerState(
+                connection=normalize_state(connection),
+                charging=normalize_state(charging),
+                last_seen_at=last_seen_at,
+                signal_strength_dbm=signal_strength_dbm,
+                connection_quality=connection_quality,
+            )
         return await self._call(charger, ChargerCapability.CONNECTIVITY_STATE, operation)
 
     async def async_get_firmware(self, charger: ChargerRef):

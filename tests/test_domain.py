@@ -12,14 +12,15 @@ from podpointclient.charge_override import ChargeOverride
 from podpointclient.charger import Charger
 from podpointclient.charger_charge_override import ChargerChargeOverride
 from podpointclient.client import PodPointClient
+from podpointclient.connectivity_status import ConnectivityStatus
 from podpointclient.connectivity_status_v2 import ConnectivityStatusV2
 from podpointclient.domain import (
     AccountCapability, BasicChargingMode, CapabilitySupport, ChargeSession,
-    ChargeSessionSource, ChargerCapability, ChargerDomain,
-    ChargerIdentityError, ChargerSource, StateValue, boost_state_from_home,
-    boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
-    charge_session_from_home, charge_session_from_legacy, normalize_state,
-    reconcile_charge_sessions,
+    ChargeSessionSource, ChargerCapability, ChargerDomain, ChargerIdentityError,
+    ChargerSource, ConnectionQualityDiagnostic, StateValue,
+    boost_state_from_home, boost_state_from_legacy, charger_ref_from_charger,
+    charger_ref_from_pod, charge_session_from_home,
+    charge_session_from_legacy, normalize_state, reconcile_charge_sessions,
 )
 from podpointclient.errors import (
     APIError, ApiConnectionError, AuthError, ChargeModeTransitionError,
@@ -205,14 +206,67 @@ async def test_state_and_firmware_use_capability_lifecycle():
     client = AsyncMock()
     charger = home_ref()
     client.async_get_connectivity_status_v2.return_value = ConnectivityStatusV2({
-        "connectionState": "Online", "chargingState": "OutOfService"
+        "connectionState": "Online",
+        "chargingState": "OutOfService",
+        "connectionQuality": 3,
+        "lastSeenAt": "2026-08-08T10:00:00Z",
     })
     client.async_get_firmware.return_value = ["firmware"]
     domain = ChargerDomain(client)
     state = await domain.async_get_state(charger)
     assert state.charging.value is StateValue.OUT_OF_SERVICE
+    assert state.last_seen_at == datetime(2026, 8, 8, 10, tzinfo=timezone.utc)
+    assert state.signal_strength_dbm is None
+    assert state.connection_quality == ConnectionQualityDiagnostic(
+        raw=3, source=ChargerSource.HOME
+    )
     assert await domain.async_get_firmware(charger) == ["firmware"]
     assert charger.capability(ChargerCapability.FIRMWARE) is CapabilitySupport.SUPPORTED
+
+
+@pytest.mark.asyncio
+async def test_legacy_state_preserves_source_specific_diagnostics():
+    client = AsyncMock()
+    client.async_get_connectivity_status.return_value = ConnectivityStatus({
+        "evses": [{
+            "connectivityState": {
+                "connectivityStatus": "ONLINE",
+                "signalStrength": -68,
+                "lastMessageAt": "2026-08-08T10:00:00Z",
+                "connectionQuality": 4,
+            },
+            "connectors": [{"chargingState": "CHARGING"}],
+        }]
+    })
+
+    state = await ChargerDomain(client).async_get_state(legacy_ref())
+
+    assert state.connection.value is StateValue.ONLINE
+    assert state.charging.value is StateValue.CHARGING
+    assert state.last_seen_at == datetime(2026, 8, 8, 10, tzinfo=timezone.utc)
+    assert state.signal_strength_dbm == -68
+    assert state.connection_quality == ConnectionQualityDiagnostic(
+        raw=4, source=ChargerSource.LEGACY
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("charger", "method", "status"),
+    [
+        (home_ref(), "async_get_connectivity_status_v2", ConnectivityStatusV2({})),
+        (legacy_ref(), "async_get_connectivity_status", ConnectivityStatus({})),
+    ],
+)
+async def test_state_diagnostics_are_optional(charger, method, status):
+    client = AsyncMock()
+    getattr(client, method).return_value = status
+
+    state = await ChargerDomain(client).async_get_state(charger)
+
+    assert state.last_seen_at is None
+    assert state.signal_strength_dbm is None
+    assert state.connection_quality is None
 
 
 @pytest.mark.asyncio

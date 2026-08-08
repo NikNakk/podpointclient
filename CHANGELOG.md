@@ -1,9 +1,11 @@
 # Pod Point Client Changelog
 
-## v1.7.0b7
+## v1.7.0b8
 
 * Exclude unfinished Home-history records from canonical completed-session
   results.
+* Add canonical last-seen and legacy RSSI diagnostics while retaining Home and
+  legacy connection-quality values as separate, source-qualified measurements.
 
 ## v1.7.0b6
 

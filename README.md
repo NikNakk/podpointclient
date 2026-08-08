@@ -200,7 +200,7 @@ Method | Description
 `async_get_active_boost(charger)` | *Get canonical active, timed, or open-ended `BoostState`.*
 `async_get_basic_charging_mode(charger)` | *Get scheduled, always-on, or timed-boost basic mode.*
 `async_set_basic_charging_mode(charger, mode)` | *Set persistent scheduled or always-on Home basic mode.*
-`async_get_charger_state(charger)` | *Get normalized connectivity and charging state.*
+`async_get_charger_state(charger)` | *Get normalized state, last-seen time, legacy RSSI, and source-qualified connection quality.*
 `async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
 `async_get_charger_legacy_schedules(charger)` | *Get legacy schedules where structurally applicable.*
 `async_get_charger_manual_schedules(charger)` | *Get Home manual/basic schedules.*

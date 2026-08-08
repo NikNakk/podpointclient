@@ -39,6 +39,12 @@ async def describe_state(client: PodPointClient, charger) -> None:
     charging = state.charging.value
     print(f"  Connection: {connection.value if connection else 'unavailable'}")
     print(f"  Charging: {charging.value if charging else 'unavailable'}")
+    print(f"  Last seen: {state.last_seen_at or 'unavailable'}")
+    if state.signal_strength_dbm is not None:
+        print(f"  Signal strength: {state.signal_strength_dbm} dBm")
+    if state.connection_quality is not None:
+        quality = state.connection_quality
+        print(f"  Connection quality ({quality.source.value}): {quality.raw}")
     if not state.connection.known and state.connection.raw is not None:
         print(f"    Raw connection state: {state.connection.raw}")
     if not state.charging.known and state.charging.raw is not None:

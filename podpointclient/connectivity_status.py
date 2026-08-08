@@ -167,9 +167,9 @@ class ConnectivityStatus:
     @property
     def connectivity_status(self):
         """Return the connectivity status of the first evse"""
-        evse = self.evses[0]
-        if evse is None:
+        if not self.evses:
             return None
+        evse = self.evses[0]
 
         connectivity_state = evse.connectivity_state
         if connectivity_state is None:
@@ -180,9 +180,9 @@ class ConnectivityStatus:
     @property
     def last_message_at(self):
         """Return the last message at of the first evse"""
-        evse = self.evses[0]
-        if evse is None:
+        if not self.evses:
             return None
+        evse = self.evses[0]
 
         connectivity_state = evse.connectivity_state
         if connectivity_state is None:
@@ -191,24 +191,44 @@ class ConnectivityStatus:
         return connectivity_state.last_message_at
 
     @property
+    def signal_strength(self):
+        """Return the RSSI in dBm reported by the first EVSE."""
+        if not self.evses:
+            return None
+        connectivity_state = self.evses[0].connectivity_state
+        if connectivity_state is None:
+            return None
+        return connectivity_state.signal_strength
+
+    @property
+    def connection_quality(self):
+        """Return the legacy quality value reported by the first EVSE."""
+        if not self.evses:
+            return None
+        connectivity_state = self.evses[0].connectivity_state
+        if connectivity_state is None:
+            return None
+        return connectivity_state.connection_quality
+
+    @property
     def charging_state(self):
         """Return the charging state of the first evse"""
+        if not self.evses:
+            return None
         evse = self.evses[0]
-        if evse is None:
-            return None
 
-        connector = evse.connectors[0]
-        if connector is None:
+        if not evse.connectors:
             return None
+        connector = evse.connectors[0]
 
         return connector.charging_state
 
     @property
     def offering_energy(self):
         """Return the offering energy of the first evse"""
-        evse = self.evses[0]
-        if evse is None:
+        if not self.evses:
             return None
+        evse = self.evses[0]
 
         energy_offer_status = evse.energy_offer_status
         if energy_offer_status is None:
