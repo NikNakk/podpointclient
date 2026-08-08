@@ -731,7 +731,7 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
         async def operation():
             history = await self._client.async_get_charge_history(from_date, to_date)
             for item in history.charges:
-                if item.charger_id in home_ppids:
+                if item.charger_id in home_ppids and item.ended_at is not None:
                     groups[item.charger_id].append(
                         charge_session_from_home(item.charger_id, item)
                     )

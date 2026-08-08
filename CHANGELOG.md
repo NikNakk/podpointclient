@@ -1,5 +1,10 @@
 # Pod Point Client Changelog
 
+## v1.7.0b7
+
+* Exclude unfinished Home-history records from canonical completed-session
+  results.
+
 ## v1.7.0b6
 
 * Resolve live legacy charge sessions through a pod's unit ID while retaining

@@ -435,10 +435,12 @@ async def test_home_and_legacy_charge_history_are_attributed_and_filtered():
     legacy = charger_ref_from_pod(legacy_pod("LEGACY", pod_id=22))
     home_item = ChargeHistoryItem({
         "id": "H", "startedAt": "2026-08-01T10:00:00Z",
+        "endedAt": "2026-08-01T11:00:00Z",
         "charger": {"id": "HOME"},
     })
     other_item = ChargeHistoryItem({
         "id": "O", "startedAt": "2026-08-01T10:00:00Z",
+        "endedAt": "2026-08-01T11:00:00Z",
         "charger": {"id": "OTHER"},
     })
     client.async_get_charge_history.return_value = ChargeHistory({
@@ -472,8 +474,10 @@ async def test_home_history_groups_multiple_chargers_with_one_account_call():
     client.async_get_charge_history.return_value = ChargeHistory({
         "data": {"count": 2, "charges": [
             {"id": "1", "startedAt": "2026-08-01T10:00:00Z",
+             "endedAt": "2026-08-01T10:30:00Z",
              "charger": {"id": "A"}},
             {"id": "2", "startedAt": "2026-08-01T11:00:00Z",
+             "endedAt": "2026-08-01T11:30:00Z",
              "charger": {"id": "B"}},
         ]}
     })
@@ -700,6 +704,40 @@ async def test_completed_home_history_groups_multiple_chargers_once():
     assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
         CapabilitySupport.SUPPORTED
     )
+
+
+@pytest.mark.asyncio
+async def test_completed_home_history_excludes_unfinished_sessions():
+    client = AsyncMock()
+    chargers = [home_ref("A"), home_ref("B")]
+    client.async_get_charge_history.return_value = ChargeHistory({
+        "data": {"charges": [
+            {
+                "id": "COMPLETE",
+                "startedAt": "2026-08-01T10:00:00Z",
+                "endedAt": "2026-08-01T11:00:00Z",
+                "charger": {"id": "A"},
+            },
+            {
+                "id": "ACTIVE-A",
+                "startedAt": "2026-08-01T12:00:00Z",
+                "endedAt": None,
+                "charger": {"id": "A"},
+            },
+            {
+                "id": "ACTIVE-B",
+                "startedAt": "2026-08-01T13:00:00Z",
+                "charger": {"id": "B"},
+            },
+        ]}
+    })
+
+    groups = await ChargerDomain(client).async_get_completed_charge_sessions(
+        chargers, date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert [session.session_id for session in groups["A"]] == ["COMPLETE"]
+    assert groups["B"] == []
 
 
 @pytest.mark.asyncio
