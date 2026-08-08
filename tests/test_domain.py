@@ -846,6 +846,25 @@ async def test_home_charger_receives_legacy_live_session_and_caches_identity():
 
 
 @pytest.mark.asyncio
+async def test_legacy_live_session_resolves_charge_pod_id_as_unit_id():
+    client = AsyncMock()
+    charger = home_ref("HOME")
+    client.async_get_all_pods.return_value = [
+        legacy_pod("HOME", pod_id=12234, unit_id=123456)
+    ]
+    client.async_get_charges.return_value = [Charge({
+        "id": 7,
+        "starts_at": "2026-08-01T10:00:00Z",
+        "ends_at": None,
+        "pod": {"id": 123456},
+    })]
+
+    groups = await ChargerDomain(client).async_get_live_charge_sessions([charger])
+
+    assert [session.session_id for session in groups["HOME"]] == ["7"]
+
+
+@pytest.mark.asyncio
 async def test_legacy_identity_mapping_refreshes_only_for_new_ppids():
     client = AsyncMock()
     charger_a = home_ref("A")

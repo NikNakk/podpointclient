@@ -412,6 +412,7 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
         self._client = client
         self._charger_states: Dict[Any, _CapabilityState] = {}
         self._legacy_ppid_by_pod_id: Dict[Any, str] = {}
+        self._legacy_ppid_by_unit_id: Dict[Any, str] = {}
         self._account_state = _CapabilityState({
             capability: CapabilitySupport.UNKNOWN for capability in AccountCapability
         })
@@ -820,13 +821,22 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
                 pod_id = getattr(charger.raw, "id", None)
                 if pod_id is not None:
                     self._legacy_ppid_by_pod_id[pod_id] = charger.ppid
-        known_ppids = set(self._legacy_ppid_by_pod_id.values())
+                if charger.unit_id is not None:
+                    self._legacy_ppid_by_unit_id[charger.unit_id] = charger.ppid
+        known_ppids = (
+            set(self._legacy_ppid_by_pod_id.values())
+            | set(self._legacy_ppid_by_unit_id.values())
+        )
         if all(charger.ppid in known_ppids for charger in chargers):
             return
         pods = await self._client.async_get_all_pods()
         for pod in pods:
-            if pod.id is not None and isinstance(pod.ppid, str) and pod.ppid.strip():
+            if not isinstance(pod.ppid, str) or not pod.ppid.strip():
+                continue
+            if pod.id is not None:
                 self._legacy_ppid_by_pod_id[pod.id] = pod.ppid
+            if pod.unit_id is not None:
+                self._legacy_ppid_by_unit_id[pod.unit_id] = pod.ppid
 
     def _group_legacy_sessions(
         self,
@@ -835,12 +845,23 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
         *,
         include_completed: bool,
     ) -> Dict[str, List[ChargeSession]]:
-        """Normalize legacy charges and associate Pod IDs with requested PPIDs."""
+        """Normalize legacy charges and associate their pod identity with PPIDs."""
         groups = {charger.ppid: [] for charger in chargers}
         for charge in charges:
             if not include_completed and charge.ends_at is not None:
                 continue
-            ppid = self._legacy_ppid_by_pod_id.get(charge.pod.id)
+            if charge.ends_at is None:
+                # Live legacy records use the unit ID in their nested pod shape.
+                ppid = (
+                    self._legacy_ppid_by_unit_id.get(charge.pod.id)
+                    or self._legacy_ppid_by_pod_id.get(charge.pod.id)
+                )
+            else:
+                # Historical legacy records traditionally use the pod ID.
+                ppid = (
+                    self._legacy_ppid_by_pod_id.get(charge.pod.id)
+                    or self._legacy_ppid_by_unit_id.get(charge.pod.id)
+                )
             if ppid in groups:
                 groups[ppid].append(charge_session_from_legacy(ppid, charge))
         for sessions in groups.values():

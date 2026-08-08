@@ -1,5 +1,10 @@
 # Pod Point Client Changelog
 
+## v1.7.0b6
+
+* Resolve live legacy charge sessions through a pod's unit ID while retaining
+  pod-ID matching for completed legacy history.
+
 ## v1.7.0b5
 
 * Qualify canonical charge-session IDs with explicit Home-history, legacy, or
