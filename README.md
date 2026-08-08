@@ -5,16 +5,23 @@
 [![License][license-shield]](LICENSE)
 
 ![Project Maintenance][maintenance-shield]
-[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
 
 _Unofficial API client for [Pod Point][pod_point_web] with a focus on home users._
 
+This repository is a fork of [mattrayner/podpointclient][upstream] that adds
+support for Pod Point's newer Home API, while retaining the original client
+functionality. The original project and its maintainers deserve full credit for
+the client on which this fork is based. See [Upstream and acknowledgement](#upstream-and-acknowledgement)
+for links to the upstream repository.
 
 ## Installation
 
 ```bash
-pip install podpointclient
+pip install "podpointclient @ git+https://github.com/NikNakk/podpointclient.git"
 ```
+
+The `podpointclient` package from PyPI is maintained by the upstream project
+and may not include this fork's Home API additions.
 
 ## Usage
 
@@ -104,13 +111,24 @@ You are able to pass a start_time and end_time when setting schedules but these 
 
 If you want to contribute to this please read the [Contribution guidelines](CONTRIBUTING.md).
 
+## Upstream and acknowledgement
+
+This fork is based on [Matt Rayner's original Pod Point Client][upstream]. For
+the upstream source, releases, issues, and documentation, visit the
+[upstream repository][upstream]. Changes specific to the newer Home API are
+maintained in [this fork][pod_point_client]. If and when these new changes are incoproated into upstream, this fork will be deprecated.
+
+You can also support the original maintainer here:
+[![BuyMeCoffee][buymecoffeebadge]][buymecoffee]
+
 [pod_point_web]: https://pod-point.com
-[pod_point_client]: https://github.com/mattrayner/podpointclient
+[pod_point_client]: https://github.com/NikNakk/podpointclient
+[upstream]: https://github.com/mattrayner/podpointclient
 [buymecoffee]: https://www.buymeacoffee.com/mattrayner
 [buymecoffeebadge]: https://img.shields.io/badge/buy%20me%20a%20coffee-donate-yellow.svg?style=for-the-badge
-[commits-shield]: https://img.shields.io/github/commit-activity/y/mattrayner/podpointclient.svg?style=for-the-badge
-[commits]: https://github.com/mattrayner/podpointclient/commits/master
-[license-shield]: https://img.shields.io/github/license/mattrayner/podpointclient.svg?style=for-the-badge
-[maintenance-shield]: https://img.shields.io/badge/maintainer-Matt%20Rayner-blue.svg?style=for-the-badge
-[releases-shield]: https://img.shields.io/github/release/mattrayner/podpointclient.svg?style=for-the-badge
-[releases]: https://github.com/mattrayner/podpointclient/releases
+[commits-shield]: https://img.shields.io/github/commit-activity/y/NikNakk/podpointclient.svg?style=for-the-badge
+[commits]: https://github.com/NikNakk/podpointclient/commits/main
+[license-shield]: https://img.shields.io/github/license/NikNakk/podpointclient.svg?style=for-the-badge
+[maintenance-shield]: https://img.shields.io/badge/maintainer-NikNakk-blue.svg?style=for-the-badge
+[releases-shield]: https://img.shields.io/github/v/release/NikNakk/podpointclient?include_prereleases&style=for-the-badge
+[releases]: https://github.com/NikNakk/podpointclient/releases
