@@ -45,6 +45,9 @@ from podpointclient import (
     UnsupportedCapabilityError,
 )
 
+if not await client.async_charger_credentials_verified():
+    raise RuntimeError("No chargers are accessible to this account")
+
 chargers = await client.async_discover_chargers()
 charger = chargers[0]  # ChargerRef; PPID is its stable identity
 
@@ -128,12 +131,15 @@ sessions_by_ppid = {
 }
 ```
 
-Completed retrieval calls Home history once for the account. It falls back to
-date-filtered legacy completed charges only after Home returns 404/410; other
-errors propagate. Live retrieval resolves legacy Pod IDs to canonical PPIDs
-internally on first use, retains that mapping in memory, and returns only
-active/incomplete records by default. Pass `include_completed=True` when recent
-completed legacy records are explicitly wanted.
+Completed retrieval partitions mixed requests: Home references use one Home
+history call and explicit legacy references use one legacy completed-history
+call. If Home returns 404/410, that same single legacy fetch covers every
+resolvable reference; other Home errors propagate without fallback. Live
+retrieval resolves legacy Pod IDs to canonical PPIDs internally on first use,
+retains known mappings in memory, and refreshes Pods if a later request contains
+an unmapped PPID. It returns only active/incomplete records by default. Pass
+`include_completed=True` when recent completed legacy records are explicitly
+wanted.
 
 Support is observed independently through
 `AccountCapability.HOME_CHARGE_HISTORY` and
@@ -142,10 +148,14 @@ the other. This separation lets an integration retain its previously cached
 completed or provisional data when an optional poll fails; the library does not
 hide transient errors or impose a polling cadence.
 
-`reconcile_charge_sessions()` deduplicates completed sessions, replaces matching
-legacy provisional sessions with authoritative completed records, and retains
-unmatched live sessions. Matching never crosses PPIDs and uses compatible
-session IDs first, then start times within a configurable 60-second tolerance.
+Each `ChargeSession` identifies its namespace through `source`, using
+`ChargeSessionSource.HOME_HISTORY`, `LEGACY`, or the backward-compatible
+`UNKNOWN` default. `reconcile_charge_sessions()` deduplicates completed
+sessions, replaces matching legacy provisional sessions with authoritative
+completed records, and retains unmatched live sessions. Matching never crosses
+PPIDs. Equal IDs are authoritative only inside the same known source namespace;
+Home-to-legacy matching uses start times within a configurable 60-second
+tolerance.
 
 ### Persistent basic charging mode
 

@@ -15,8 +15,8 @@ from podpointclient.client import PodPointClient
 from podpointclient.connectivity_status_v2 import ConnectivityStatusV2
 from podpointclient.domain import (
     AccountCapability, BasicChargingMode, CapabilitySupport, ChargeSession,
-    ChargerCapability, ChargerDomain, ChargerIdentityError, ChargerSource,
-    StateValue, boost_state_from_home,
+    ChargeSessionSource, ChargerCapability, ChargerDomain,
+    ChargerIdentityError, ChargerSource, StateValue, boost_state_from_home,
     boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
     charge_session_from_home, charge_session_from_legacy, normalize_state,
     reconcile_charge_sessions,
@@ -422,6 +422,8 @@ def test_canonical_charge_session_converters_preserve_correlation():
     provisional = charge_session_from_legacy("P", legacy)
     completed = charge_session_from_home("P", home)
     assert provisional.active and not completed.active
+    assert provisional.source is ChargeSessionSource.LEGACY
+    assert completed.source is ChargeSessionSource.HOME_HISTORY
     assert provisional.correlation_key == completed.correlation_key
     assert completed.energy_kwh == 7.2 and completed.currency == "GBP"
 
@@ -555,7 +557,8 @@ async def test_domain_credentials_propagate_non_fallback_errors(error):
 
 
 def canonical_session(
-    ppid, started_at, *, session_id=None, active=False, ended_at=None
+    ppid, started_at, *, session_id=None, active=False, ended_at=None,
+    source=ChargeSessionSource.UNKNOWN,
 ):
     """Build a compact canonical session fixture."""
     return ChargeSession(
@@ -569,7 +572,17 @@ def canonical_session(
         cost=None,
         currency=None,
         correlation_key=f"{ppid}:{started_at.isoformat()}",
+        source=source,
     )
+
+
+def test_charge_session_source_default_preserves_positional_raw_compatibility():
+    raw = object()
+    session = ChargeSession(
+        "P", "1", None, None, False, None, None, None, None, "P:unknown", raw
+    )
+    assert session.raw is raw
+    assert session.source is ChargeSessionSource.UNKNOWN
 
 
 def test_reconcile_replaces_matches_deduplicates_and_orders():
@@ -596,16 +609,21 @@ def test_reconcile_replaces_matches_deduplicates_and_orders():
 
 def test_reconcile_observes_tolerance_ppid_and_stable_identifiers():
     start = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
-    final = canonical_session("A", start, session_id="S", ended_at=start)
+    final = canonical_session(
+        "A", start, session_id="S", ended_at=start,
+        source=ChargeSessionSource.HOME_HISTORY,
+    )
     exact = canonical_session(
-        "A", start + timedelta(seconds=60), session_id="different", active=True
+        "A", start + timedelta(seconds=60), session_id="different", active=True,
+        source=ChargeSessionSource.LEGACY,
     )
     outside = canonical_session(
         "A", start + timedelta(seconds=61), session_id="outside", active=True
     )
     other = canonical_session("B", start, session_id="other", active=True)
     same_id = canonical_session(
-        "A", start + timedelta(hours=1), session_id="S", active=True
+        "A", start + timedelta(hours=1), session_id="S", active=True,
+        source=ChargeSessionSource.HOME_HISTORY,
     )
 
     result = reconcile_charge_sessions(
@@ -613,6 +631,47 @@ def test_reconcile_observes_tolerance_ppid_and_stable_identifiers():
     )
 
     assert {item.session_id for item in result} == {"S", "outside", "other"}
+
+
+@pytest.mark.parametrize("source", [
+    ChargeSessionSource.HOME_HISTORY, ChargeSessionSource.LEGACY,
+])
+def test_reconcile_same_source_ids_are_comparable_and_deduplicated(source):
+    start = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
+    final = canonical_session(
+        "A", start, session_id="shared", ended_at=start, source=source
+    )
+    duplicate = canonical_session(
+        "A", start + timedelta(hours=1), session_id="shared", ended_at=start,
+        source=source,
+    )
+    provisional = canonical_session(
+        "A", start + timedelta(hours=2), session_id="shared", active=True,
+        source=source,
+    )
+
+    result = reconcile_charge_sessions([final, duplicate], [provisional])
+
+    assert result == [final]
+
+
+def test_reconcile_equal_cross_source_or_unknown_ids_are_not_authoritative():
+    start = datetime(2026, 8, 1, 10, tzinfo=timezone.utc)
+    final = canonical_session(
+        "A", start, session_id="42", ended_at=start,
+        source=ChargeSessionSource.HOME_HISTORY,
+    )
+    cross_source = canonical_session(
+        "A", start + timedelta(minutes=5), session_id="42", active=True,
+        source=ChargeSessionSource.LEGACY,
+    )
+    unknown = canonical_session(
+        "A", start + timedelta(minutes=10), session_id="42", active=True,
+    )
+
+    result = reconcile_charge_sessions([final], [cross_source, unknown])
+
+    assert result == [final, cross_source, unknown]
 
 
 @pytest.mark.asyncio
@@ -644,6 +703,128 @@ async def test_completed_home_history_groups_multiple_chargers_once():
 
 
 @pytest.mark.asyncio
+async def test_mixed_completed_history_partitions_and_merges_once_per_source():
+    client = AsyncMock()
+    home = home_ref("HOME")
+    legacy = charger_ref_from_pod(legacy_pod("LEGACY", pod_id=22))
+    client.async_get_charge_history.return_value = ChargeHistory({
+        "data": {"charges": [{
+            "id": "H", "startedAt": "2026-08-01T10:00:00Z",
+            "endedAt": "2026-08-01T11:00:00Z",
+            "charger": {"id": "HOME"},
+        }]}
+    })
+    client.async_get_all_charges.return_value = [Charge({
+        "id": 7, "starts_at": "2026-08-01T12:00:00Z",
+        "ends_at": "2026-08-01T13:00:00Z", "pod": {"id": 22},
+    })]
+
+    groups = await ChargerDomain(client).async_get_completed_charge_sessions(
+        [home, legacy], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert [item.session_id for item in groups["HOME"]] == ["H"]
+    assert [item.session_id for item in groups["LEGACY"]] == ["7"]
+    client.async_get_charge_history.assert_awaited_once()
+    client.async_get_all_charges.assert_awaited_once()
+    client.async_get_all_pods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_mixed_home_success_survives_legacy_history_absence():
+    client = AsyncMock()
+    home = home_ref("HOME")
+    legacy = charger_ref_from_pod(legacy_pod("LEGACY", pod_id=22))
+    client.async_get_charge_history.return_value = ChargeHistory({
+        "data": {"charges": [{
+            "id": "H", "startedAt": "2026-08-01T10:00:00Z",
+            "endedAt": "2026-08-01T11:00:00Z",
+            "charger": {"id": "HOME"},
+        }]}
+    })
+    client.async_get_all_charges.side_effect = APIError(404, "missing")
+    domain = ChargerDomain(client)
+
+    groups = await domain.async_get_completed_charge_sessions(
+        [home, legacy], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert [item.session_id for item in groups["HOME"]] == ["H"]
+    assert groups["LEGACY"] == []
+    assert domain.account_capability(AccountCapability.HOME_CHARGE_HISTORY) is (
+        CapabilitySupport.SUPPORTED
+    )
+    assert domain.account_capability(AccountCapability.LEGACY_CHARGES) is (
+        CapabilitySupport.UNSUPPORTED
+    )
+    assert domain.account_capability(AccountCapability.CHARGE_HISTORY) is (
+        CapabilitySupport.SUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_home_history_absence_uses_one_legacy_fetch_for_all_refs():
+    client = AsyncMock()
+    home = home_ref("HOME")
+    legacy = charger_ref_from_pod(legacy_pod("LEGACY", pod_id=22))
+    client.async_get_charge_history.side_effect = APIError(404, "missing")
+    client.async_get_all_pods.return_value = [
+        legacy_pod("HOME", pod_id=21), legacy_pod("LEGACY", pod_id=22)
+    ]
+    client.async_get_all_charges.return_value = [
+        Charge({"id": 1, "starts_at": "2026-08-01T10:00:00Z",
+                "ends_at": "2026-08-01T11:00:00Z", "pod": {"id": 21}}),
+        Charge({"id": 2, "starts_at": "2026-08-01T12:00:00Z",
+                "ends_at": "2026-08-01T13:00:00Z", "pod": {"id": 22}}),
+    ]
+
+    groups = await ChargerDomain(client).async_get_completed_charge_sessions(
+        [home, legacy], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert [item.session_id for item in groups["HOME"]] == ["1"]
+    assert [item.session_id for item in groups["LEGACY"]] == ["2"]
+    client.async_get_charge_history.assert_awaited_once()
+    client.async_get_all_charges.assert_awaited_once()
+    client.async_get_all_pods.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_equivalent_mixed_refs_do_not_duplicate_completed_session():
+    client = AsyncMock()
+    home = home_ref("SAME")
+    legacy = charger_ref_from_pod(legacy_pod("SAME", pod_id=22))
+    client.async_get_charge_history.return_value = ChargeHistory({
+        "data": {"charges": [{
+            "id": "42", "startedAt": "2026-08-01T10:00:00Z",
+            "endedAt": "2026-08-01T11:00:00Z", "charger": {"id": "SAME"},
+        }]}
+    })
+    client.async_get_all_charges.return_value = [Charge({
+        "id": 42, "starts_at": "2026-08-01T10:00:00Z",
+        "ends_at": "2026-08-01T11:00:00Z", "pod": {"id": 22},
+    })]
+
+    groups = await ChargerDomain(client).async_get_completed_charge_sessions(
+        [home, legacy, home], date(2026, 8, 1), date(2026, 8, 2)
+    )
+
+    assert len(groups["SAME"]) == 1
+    assert groups["SAME"][0].source is ChargeSessionSource.HOME_HISTORY
+
+
+@pytest.mark.asyncio
+async def test_empty_completed_history_request_makes_no_calls():
+    client = AsyncMock()
+    assert await ChargerDomain(client).async_get_completed_charge_sessions(
+        [], date(2026, 8, 1), date(2026, 8, 2)
+    ) == {}
+    client.async_get_charge_history.assert_not_awaited()
+    client.async_get_all_charges.assert_not_awaited()
+    client.async_get_all_pods.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_home_charger_receives_legacy_live_session_and_caches_identity():
     client = AsyncMock()
     charger = home_ref("HOME")
@@ -662,6 +843,54 @@ async def test_home_charger_receives_legacy_live_session_and_caches_identity():
     client.async_get_all_pods.assert_awaited_once()
     assert client.async_get_charges.await_count == 2
     client.async_get_charge_history.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_identity_mapping_refreshes_only_for_new_ppids():
+    client = AsyncMock()
+    charger_a = home_ref("A")
+    charger_b = home_ref("B")
+    client.async_get_all_pods.side_effect = [
+        [legacy_pod("A", pod_id=21)],
+        [legacy_pod("A", pod_id=21), legacy_pod("B", pod_id=22)],
+    ]
+    client.async_get_charges.return_value = [
+        Charge({"id": 1, "starts_at": "2026-08-01T10:00:00Z",
+                "ends_at": None, "pod": {"id": 21}}),
+        Charge({"id": 2, "starts_at": "2026-08-01T11:00:00Z",
+                "ends_at": None, "pod": {"id": 22}}),
+    ]
+    domain = ChargerDomain(client)
+
+    first = await domain.async_get_live_charge_sessions([charger_a])
+    await domain.async_get_live_charge_sessions([charger_a])
+    refreshed = await domain.async_get_live_charge_sessions([charger_a, charger_b])
+    await domain.async_get_live_charge_sessions([charger_a, charger_b])
+
+    assert [item.session_id for item in first["A"]] == ["1"]
+    assert [item.session_id for item in refreshed["A"]] == ["1"]
+    assert [item.session_id for item in refreshed["B"]] == ["2"]
+    assert client.async_get_all_pods.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_unresolved_new_ppid_is_not_misattributed_on_refresh():
+    client = AsyncMock()
+    charger_a = home_ref("A")
+    charger_b = home_ref("B")
+    client.async_get_all_pods.return_value = [legacy_pod("A", pod_id=21)]
+    client.async_get_charges.return_value = [
+        Charge({"id": 1, "starts_at": "2026-08-01T10:00:00Z",
+                "ends_at": None, "pod": {"id": 21}}),
+        Charge({"id": 2, "starts_at": "2026-08-01T11:00:00Z",
+                "ends_at": None, "pod": {"id": 99}}),
+    ]
+    domain = ChargerDomain(client)
+
+    groups = await domain.async_get_live_charge_sessions([charger_a, charger_b])
+
+    assert [item.session_id for item in groups["A"]] == ["1"]
+    assert groups["B"] == []
 
 
 @pytest.mark.asyncio

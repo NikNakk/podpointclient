@@ -75,6 +75,14 @@ class BasicChargingMode(Enum):
     UNKNOWN = "unknown"
 
 
+class ChargeSessionSource(Enum):
+    """API namespace which supplied a canonical charge session."""
+
+    HOME_HISTORY = "home_history"
+    LEGACY = "legacy"
+    UNKNOWN = "unknown"
+
+
 class StateValue(Enum):
     """Normalized connectivity or charging value."""
 
@@ -145,6 +153,7 @@ class ChargeSession:
     currency: Optional[str]
     correlation_key: str
     raw: Any = field(default=None, repr=False, compare=False)
+    source: ChargeSessionSource = ChargeSessionSource.UNKNOWN
 
 
 def normalize_state(value: Optional[str]) -> NormalizedStateValue:
@@ -314,7 +323,8 @@ def charge_session_from_legacy(ppid: str, charge: Charge) -> ChargeSession:
         started_at=charge.starts_at, ended_at=charge.ends_at,
         active=charge.ends_at is None, energy_kwh=charge.kwh_used,
         duration_seconds=duration, cost=cost, currency=billing.currency,
-        correlation_key=_correlation_key(ppid, charge.starts_at), raw=charge,
+        correlation_key=_correlation_key(ppid, charge.starts_at),
+        source=ChargeSessionSource.LEGACY, raw=charge,
     )
 
 
@@ -326,7 +336,8 @@ def charge_session_from_home(ppid: str, charge: ChargeHistoryItem) -> ChargeSess
         active=charge.ended_at is None, energy_kwh=charge.energy_total,
         duration_seconds=charge.duration, cost=charge.cost.amount,
         currency=charge.cost.currency,
-        correlation_key=_correlation_key(ppid, charge.started_at), raw=charge,
+        correlation_key=_correlation_key(ppid, charge.started_at),
+        source=ChargeSessionSource.HOME_HISTORY, raw=charge,
     )
 
 
@@ -354,11 +365,14 @@ def reconcile_charge_sessions(
     unique_completed = {}
     for session in completed:
         identity = (
-            ("id", session.ppid, session.session_id)
-            if session.session_id is not None
+            ("id", session.source, session.ppid, session.session_id)
+            if (
+                session.session_id is not None
+                and session.source is not ChargeSessionSource.UNKNOWN
+            )
             else (
-                "time", session.ppid, session.started_at, session.ended_at,
-                session.energy_kwh,
+                "time", session.source, session.ppid, session.started_at,
+                session.ended_at, session.energy_kwh,
             )
         )
         unique_completed.setdefault(identity, session)
@@ -372,6 +386,8 @@ def reconcile_charge_sessions(
             candidate.session_id is not None
             and final.session_id is not None
             and candidate.session_id == final.session_id
+            and candidate.source is final.source
+            and candidate.source is not ChargeSessionSource.UNKNOWN
         ):
             return True
         if candidate.started_at is None or final.started_at is None:
@@ -396,7 +412,6 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
         self._client = client
         self._charger_states: Dict[Any, _CapabilityState] = {}
         self._legacy_ppid_by_pod_id: Dict[Any, str] = {}
-        self._legacy_identity_resolved = False
         self._account_state = _CapabilityState({
             capability: CapabilitySupport.UNKNOWN for capability in AccountCapability
         })
@@ -697,35 +712,59 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
     async def async_get_completed_charge_sessions(
         self, chargers: List[ChargerRef], from_date: date, to_date: date
     ) -> Dict[str, List[ChargeSession]]:
-        """Get authoritative Home history, with confirmed-absence legacy fallback."""
+        """Partition completed history by source and merge canonical results."""
         groups = {charger.ppid: [] for charger in chargers}
         if not chargers:
             return groups
-        home_capable = any(
-            charger.source is ChargerSource.HOME for charger in chargers
-        )
-        if not home_capable:
-            return await self._async_get_legacy_completed_sessions(
-                chargers, from_date, to_date
-            )
+
+        home_ppids = {
+            charger.ppid for charger in chargers
+            if charger.source is ChargerSource.HOME
+        }
+        legacy_ppids = {
+            charger.ppid for charger in chargers
+            if charger.source is ChargerSource.LEGACY
+        }
+        home_succeeded = False
 
         async def operation():
             history = await self._client.async_get_charge_history(from_date, to_date)
             for item in history.charges:
-                if item.charger_id in groups:
+                if item.charger_id in home_ppids:
                     groups[item.charger_id].append(
                         charge_session_from_home(item.charger_id, item)
                     )
             return groups
 
-        try:
-            return await self._call_account(
-                AccountCapability.HOME_CHARGE_HISTORY, operation
-            )
-        except UnsupportedCapabilityError:
-            return await self._async_get_legacy_completed_sessions(
-                chargers, from_date, to_date
-            )
+        if home_ppids:
+            try:
+                await self._call_account(
+                    AccountCapability.HOME_CHARGE_HISTORY, operation
+                )
+                home_succeeded = True
+            except UnsupportedCapabilityError:
+                legacy_ppids.update(home_ppids)
+
+        if legacy_ppids:
+            legacy_chargers = [
+                charger for charger in chargers if charger.ppid in legacy_ppids
+            ]
+            try:
+                legacy_groups = await self._async_get_legacy_completed_sessions(
+                    legacy_chargers, from_date, to_date
+                )
+            except UnsupportedCapabilityError:
+                if not home_succeeded:
+                    raise
+            else:
+                for ppid, sessions in legacy_groups.items():
+                    groups[ppid] = reconcile_charge_sessions(
+                        groups[ppid], sessions
+                    )
+
+        for sessions in groups.values():
+            sessions.sort(key=_session_sort_key)
+        return groups
 
     async def async_get_live_charge_sessions(
         self,
@@ -782,15 +821,12 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
                 if pod_id is not None:
                     self._legacy_ppid_by_pod_id[pod_id] = charger.ppid
         known_ppids = set(self._legacy_ppid_by_pod_id.values())
-        if self._legacy_identity_resolved or all(
-            charger.ppid in known_ppids for charger in chargers
-        ):
+        if all(charger.ppid in known_ppids for charger in chargers):
             return
         pods = await self._client.async_get_all_pods()
         for pod in pods:
             if pod.id is not None and isinstance(pod.ppid, str) and pod.ppid.strip():
                 self._legacy_ppid_by_pod_id[pod.id] = pod.ppid
-        self._legacy_identity_resolved = True
 
     def _group_legacy_sessions(
         self,

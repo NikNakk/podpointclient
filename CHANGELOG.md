@@ -1,5 +1,16 @@
 # Pod Point Client Changelog
 
+## v1.7.0b5
+
+* Qualify canonical charge-session IDs with explicit Home-history, legacy, or
+  unknown source namespaces.
+* Refresh legacy Pod-ID mappings when a later request contains a newly linked
+  charger PPID.
+* Partition and merge mixed Home/legacy completed-history requests while
+  retaining independent source capability observations.
+* Move package metadata to PEP 621, using an SPDX MIT license expression while
+  retaining `setup.py` only as a compatibility shim.
+
 ## v1.7.0b4
 
 * Add Home-first domain credential verification for Home-only accounts.

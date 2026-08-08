@@ -1,6 +1,46 @@
 [build-system]
 requires = [
-    "setuptools>=42",
+    "setuptools>=77",
     "wheel"
 ]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "podpointclient-niknakk"
+dynamic = ["version"]
+description = "A domain-level and endpoint-specific client for Pod Point home chargers"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.7"
+license = "MIT"
+authors = [
+    {name = "Matthew Rayner", email = "hello@rayner.io"},
+]
+maintainers = [
+    {name = "Nick Kennedy"},
+]
+keywords = ["Pod Point", "PodPoint", "EV", "charger"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "aiohttp>=3",
+    "async-timeout>=4; python_version < '3.11'",
+    "StrEnum>=0.4,<0.5",
+    "pytz",
+]
+
+[project.urls]
+Homepage = "https://github.com/NikNakk/podpointclient"
+Source = "https://github.com/NikNakk/podpointclient"
+"Bug Tracker" = "https://github.com/NikNakk/podpointclient/issues"
+Upstream = "https://github.com/mattrayner/podpointclient"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "podpointclient.version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["podpointclient*"]

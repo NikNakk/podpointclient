@@ -128,6 +128,9 @@ async def main(
             http_debug=http_debug,
         )
 
+        if not await client.async_charger_credentials_verified():
+            print("Credentials are valid, but no chargers were found")
+            return
         chargers = await client.async_discover_chargers()
         print(f"Found {len(chargers)} charger(s)")
         if not chargers:
