@@ -60,6 +60,7 @@ from .errors import (
     ChargeModeTransitionError, ChargeOverrideValidationError,
     RequestValidationError
 )
+from .domain import ChargerDomain
 
 TIMEOUT = 10
 
@@ -101,6 +102,33 @@ class PodPointClient:
         )
         self.api_wrapper = APIWrapper(session=self._session)
         self.include_timestamp = include_timestamp
+
+    @property
+    def domain(self) -> ChargerDomain:
+        """Return the high-level, API-independent charger facade."""
+        return ChargerDomain(self)
+
+    async def async_discover_chargers(self):
+        """Discover canonical charger references using Home-first fallback."""
+        return await self.domain.async_discover_chargers()
+
+    async def async_start_boost(self, charger, hours=0, minutes=0, seconds=0):
+        """Start a timed boost without selecting a wire API."""
+        return await self.domain.async_start_boost(
+            charger, hours=hours, minutes=minutes, seconds=seconds
+        )
+
+    async def async_stop_boost(self, charger):
+        """Stop active boosts without selecting a wire API."""
+        return await self.domain.async_stop_boost(charger)
+
+    async def async_get_charger_state(self, charger):
+        """Return API-independent connectivity and charging state."""
+        return await self.domain.async_get_state(charger)
+
+    async def async_get_charger_firmware(self, charger):
+        """Get firmware without selecting or adapting to a wire API model."""
+        return await self.domain.async_get_firmware(charger)
 
     async def async_credentials_verified(self) -> bool:
         """Perform a minimum call to verify we have working credentials and can get one Pod"""

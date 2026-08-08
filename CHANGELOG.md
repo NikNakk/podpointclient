@@ -1,5 +1,14 @@
 # Pod Point Client Changelog
 
+## v1.7.0b2
+
+* Add a backward-compatible domain charger facade with canonical PPID identity.
+* Add explicit tri-state capabilities and safe state normalization.
+* Add Home-first discovery with legacy fallback only for HTTP 404/410.
+* Add unified timed boost start/stop and connectivity state operations.
+* Add unified firmware reads through the legacy unit endpoint for both charger sources.
+* Add typed unsupported-capability errors and reliable API status extraction.
+
 ## v1.6.0
 
 * Add getting connection status from API:

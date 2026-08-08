@@ -25,10 +25,46 @@ and may not include this fork's Home API additions.
 
 ## Usage
 
+### Domain-level charger API
+
+For application code, the domain API provides stable charger identity,
+capabilities, state, and boost operations across both Pod Point wire APIs. It
+tries Home discovery first and uses the legacy Pod API only when Home discovery
+is confirmed absent (HTTP 404/410). It does not hide authentication, connection,
+rate-limit, or unexpected server failures.
+
+```python
+from podpointclient import CapabilitySupport, ChargerCapability
+
+chargers = await client.async_discover_chargers()
+charger = chargers[0]  # ChargerRef; PPID is its stable identity
+
+if charger.capability(ChargerCapability.TIMED_BOOST) is CapabilitySupport.SUPPORTED:
+    await client.async_start_boost(charger, hours=1)
+    state = await client.async_get_charger_state(charger)
+    await client.async_stop_boost(charger)
+```
+
+Capabilities explicitly distinguish `SUPPORTED`, `UNSUPPORTED`, and `UNKNOWN`
+(not yet determined or temporarily unavailable). A domain operation with no
+meaningful equivalent raises `UnsupportedCapabilityError`; 404/410 responses
+from capability endpoints are translated to the same typed error. Unknown state
+spellings are retained in `NormalizedStateValue.raw` and normalize safely to
+`StateValue.UNKNOWN`.
+
+The endpoint-specific API remains fully supported. Existing `Pod`, `Charger`,
+`ConnectivityStatusV2`, `ChargerChargeOverride`, and all existing client methods
+are unchanged for callers that need wire-level data.
+
 The [Pod Point Client][pod_point_client] supports the following methods:
 
 Method | Description
 ---|---
+`async_discover_chargers()` | *Discover canonical `ChargerRef` objects through Home-first, confirmed-unsupported fallback.*
+`async_start_boost(charger, hours=0, minutes=0, seconds=0)` | *Start a timed boost without selecting a wire API.*
+`async_stop_boost(charger)` | *Stop active boosts without selecting a wire API.*
+`async_get_charger_state(charger)` | *Get normalized connectivity and charging state.*
+`async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
 `async_credentials_verified()` | *Verify that the credentials we have can pull _atleast_ one Pod* - Returns `bool`.
 `async_get_all_pods(includes=[])` | *Get all pods from a user's account* - Returns a list of `Pod` objects. Optional `includes` can be used to change what will be returned. Defaults to all data.
 `async_get_pods(perpage=5, page=2, includes=[])` | *Get pods from a user's account* - Returns a list of `Pod` objects. `perpage` can be 'all', or a number. Can get additional pages with `page` attribute. `includes` is a list of additional information pulled for the Pod. Pass an empty list to `includes` for minimal information or `None` for full data (defaults to `None`).
@@ -82,18 +118,26 @@ and avoid sending a redundant update that the API would reject.
 
 ### Example
 
-Included in the project is `example.py` which walks through a common scenario: 
+Included in the project is `example.py`, which demonstrates the domain-level
+API without branching between `Pod` and `Charger`. It:
 
-1. Get all pods
-1. Get firmware and serial number data for one pod
-1. Updating the schedule of an individual pod
-1. Confirm that it worked
-1. Get information from the last charge
+1. Discovers canonical chargers using Home-first fallback.
+1. Prints identity and explicit capability states.
+1. Gets normalized connectivity and charging state.
+1. Gets firmware status through the unified legacy-backed operation.
+1. Optionally starts and immediately stops a timed boost.
 
 > You must provide your email address and password to the script as detailed below:
 
 ```bash
 python3 example.py --email PODPOINTEMAIL --password PODPOINTPASSWORD
+```
+
+The example is read-only by default. To demonstrate unified boost dispatch for
+the first charger, explicitly pass a duration:
+
+```bash
+python3 example.py --email PODPOINTEMAIL --password PODPOINTPASSWORD --boost-minutes 5
 ```
 
 ### Setting charging schedules
