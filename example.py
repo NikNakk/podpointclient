@@ -7,8 +7,7 @@ from typing import Optional
 
 import aiohttp
 
-from podpointclient.client import PodPointClient
-from podpointclient.domain import CapabilitySupport, ChargerCapability
+from podpointclient import CapabilitySupport, ChargerCapability, PodPointClient
 from podpointclient.errors import UnsupportedCapabilityError
 
 
@@ -74,7 +73,7 @@ async def describe_firmware(client: PodPointClient, charger) -> None:
 
 
 async def describe_basic_mode(client: PodPointClient, charger) -> None:
-    """Read the canonical persistent/basic charging mode when available."""
+    """Read boost state once and derive the canonical basic charging mode."""
     if (
         charger.capability(ChargerCapability.BASIC_CHARGING_MODE)
         is CapabilitySupport.UNSUPPORTED
@@ -82,7 +81,10 @@ async def describe_basic_mode(client: PodPointClient, charger) -> None:
         print("  Basic charging mode is unsupported")
         return
     try:
-        mode = await client.async_get_basic_charging_mode(charger)
+        boost = await client.async_get_active_boost(charger)
+        mode = await client.async_get_basic_charging_mode(
+            charger, boost_state=boost
+        )
     except UnsupportedCapabilityError:
         print("  Basic charging mode endpoint is unsupported")
         return

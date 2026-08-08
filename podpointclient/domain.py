@@ -19,6 +19,7 @@ from .errors import (
     is_unsupported_api_error,
 )
 from .pod import Pod
+from .schedule import Schedule
 
 
 class ChargerIdentityError(ValueError):
@@ -208,7 +209,6 @@ def _initial_charger_capabilities(source: ChargerSource, unit_id: Optional[int])
     else:
         for capability in (
             ChargerCapability.MANUAL_SCHEDULING,
-            ChargerCapability.BASIC_CHARGING_MODE,
             ChargerCapability.DELEGATED_SMART_CHARGING,
             ChargerCapability.SMART_CHARGING_PREFERENCES,
             ChargerCapability.TARIFFS,
@@ -315,6 +315,15 @@ def boost_state_from_home(
         requested_at=override.requested_at, started_at=override.received_at,
         ends_at=override.end_at, source_id=override.id, raw=override,
     )
+
+
+def basic_charging_mode_from_boost(state: BoostState) -> BasicChargingMode:
+    """Derive scheduled, always-on, or timed-boost mode from canonical state."""
+    if not state.active:
+        return BasicChargingMode.SCHEDULED
+    if state.timed:
+        return BasicChargingMode.TIMED_BOOST
+    return BasicChargingMode.ALWAYS_ON
 
 
 def _correlation_key(ppid: str, started_at: Optional[datetime]) -> str:
@@ -557,29 +566,36 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
     async def async_get_active_boost(self, charger: ChargerRef) -> BoostState:
         """Return canonical active/inactive override state."""
         async def operation():
-            if charger.source is ChargerSource.HOME:
-                items = await self._client.async_get_charger_charge_overrides(
-                    charger.raw, active_only=True
-                )
-                return boost_state_from_home(charger.ppid, items[0] if items else None)
-            override = await self._client.async_get_charge_override(charger.raw)
-            return boost_state_from_legacy(charger.ppid, override)
+            return await self._async_get_boost_state(charger)
         return await self._call(charger, ChargerCapability.TIMED_BOOST, operation)
 
-    async def async_get_basic_charging_mode(
-        self, charger: ChargerRef
-    ) -> BasicChargingMode:
-        """Get persistent basic mode while distinguishing an active timed boost."""
-        async def operation():
+    async def _async_get_boost_state(self, charger: ChargerRef) -> BoostState:
+        """Fetch canonical override state without applying a capability lifecycle."""
+        if charger.source is ChargerSource.HOME:
             items = await self._client.async_get_charger_charge_overrides(
                 charger.raw, active_only=True
             )
-            state = boost_state_from_home(charger.ppid, items[0] if items else None)
-            if not state.active:
-                return BasicChargingMode.SCHEDULED
-            if state.timed:
-                return BasicChargingMode.TIMED_BOOST
-            return BasicChargingMode.ALWAYS_ON
+            return boost_state_from_home(charger.ppid, items[0] if items else None)
+        override = await self._client.async_get_charge_override(charger.raw)
+        return boost_state_from_legacy(charger.ppid, override)
+
+    async def async_get_basic_charging_mode(
+        self, charger: ChargerRef, boost_state: Optional[BoostState] = None
+    ) -> BasicChargingMode:
+        """Derive basic mode across APIs, optionally reusing fetched boost state."""
+        if boost_state is not None:
+            if not isinstance(boost_state, BoostState):
+                raise RequestValidationError("boost_state must be a BoostState")
+            if boost_state.ppid != charger.ppid:
+                raise RequestValidationError(
+                    "boost_state PPID must match the charger PPID"
+                )
+
+        async def operation():
+            state = boost_state
+            if state is None:
+                state = await self._async_get_boost_state(charger)
+            return basic_charging_mode_from_boost(state)
         return await self._call(
             charger, ChargerCapability.BASIC_CHARGING_MODE, operation
         )
@@ -593,6 +609,10 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
         if mode not in (BasicChargingMode.SCHEDULED, BasicChargingMode.ALWAYS_ON):
             raise RequestValidationError(
                 "only scheduled or always_on can be set as a persistent mode"
+            )
+        if charger.source is not ChargerSource.HOME:
+            raise UnsupportedCapabilityError(
+                ChargerCapability.BASIC_CHARGING_MODE, charger.ppid
             )
 
         async def operation():
@@ -629,11 +649,13 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
             return await self._client.async_delete_charge_override(charger.raw)
         return await self._call(charger, ChargerCapability.TIMED_BOOST, operation)
 
-    async def async_get_legacy_schedules(self, charger: ChargerRef):
-        """Return legacy schedule models for a legacy charger."""
+    async def async_get_legacy_schedules(
+        self, charger: ChargerRef, *, refresh: bool = False
+    ) -> List[Schedule]:
+        """Return discovery schedules, optionally refreshing the legacy Pod."""
         async def operation():
             pod = charger.raw
-            if getattr(pod, "id", None) is not None:
+            if refresh and getattr(pod, "id", None) is not None:
                 pod = await self._client.async_get_pod(pod.id)
             return list(pod.charge_schedules)
         return await self._call(charger, ChargerCapability.LEGACY_SCHEDULING, operation)

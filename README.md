@@ -90,8 +90,10 @@ wire value and normalize safely to `StateValue.UNKNOWN`.
 
 Delegated vehicles, charge history, and the reward wallet are account-level
 features. Their support is exposed through
-`client.domain.account_capability(AccountCapability.X)`. Bulk grouping methods
-fetch account data once and associate records by canonical PPID:
+`client.account_capability(AccountCapability.X)`. This returns the same
+`SUPPORTED`, `UNSUPPORTED`, or `UNKNOWN` semantics as charger capabilities,
+without requiring consumers to access the domain implementation. Bulk grouping
+methods fetch account data once and associate records by canonical PPID:
 
 ```python
 vehicle_groups = await client.async_get_domain_delegated_vehicle_groups()
@@ -161,9 +163,19 @@ tolerance.
 
 ### Persistent basic charging mode
 
-For Home chargers, `async_get_basic_charging_mode()` returns
+For both Home and legacy chargers, `async_get_basic_charging_mode()` returns
 `BasicChargingMode.SCHEDULED`, `ALWAYS_ON`, or `TIMED_BOOST` from active override
-state. Persistent transitions use the canonical reference:
+state. The mapping is inactive boost to `SCHEDULED`, active open-ended boost to
+`ALWAYS_ON`, and active timed boost to `TIMED_BOOST`. If the integration already
+fetched `BoostState`, pass it as `boost_state=` to derive the mode without a
+second request:
+
+```python
+boost = await client.async_get_active_boost(charger)
+mode = await client.async_get_basic_charging_mode(charger, boost_state=boost)
+```
+
+Persistent transitions remain Home-only and use the canonical reference:
 
 ```python
 await client.async_set_basic_charging_mode(
@@ -176,7 +188,14 @@ await client.async_set_basic_charging_mode(
 
 `TIMED_BOOST` and `UNKNOWN` are observations and cannot be set through this
 persistent-mode method. The existing smart-charging prerequisite checks remain
-in force.
+in force. A legacy set attempt raises `UnsupportedCapabilityError`; legacy mode
+reads remain supported.
+
+Legacy schedules are snapshots included in legacy charger discovery. Calling
+`async_get_charger_legacy_schedules(charger)` returns that snapshot without a
+duplicate Pod request. Rediscover chargers during a polling cycle to obtain a
+new snapshot, or pass `refresh=True` when an explicit out-of-cycle refresh is
+required. Schedule values are not retained in a separate long-lived cache.
 
 Boost reads return `BoostState`; charge history returns `ChargeSession`. These
 small canonical models normalize the fields that differ between APIs while
@@ -189,7 +208,15 @@ The endpoint-specific API remains fully supported. Existing `Pod`, `Charger`,
 `ConnectivityStatusV2`, `ChargerChargeOverride`, and all existing client methods
 are unchanged for callers that need wire-level data.
 
-The [Pod Point Client][pod_point_client] supports the following methods:
+### API reference
+
+#### Canonical domain API
+
+These are the recommended methods for integrations. They accept canonical
+`ChargerRef` objects, select the appropriate wire API inside the library, and
+return canonical results where the Home and legacy representations differ.
+Consumers using this section do not need to inspect `ChargerRef.raw` or branch
+on its source.
 
 Method | Description
 ---|---
@@ -198,11 +225,12 @@ Method | Description
 `async_start_boost(charger, hours=0, minutes=0, seconds=0)` | *Start a timed boost without selecting a wire API.*
 `async_stop_boost(charger)` | *Stop active boosts without selecting a wire API.*
 `async_get_active_boost(charger)` | *Get canonical active, timed, or open-ended `BoostState`.*
-`async_get_basic_charging_mode(charger)` | *Get scheduled, always-on, or timed-boost basic mode.*
+`account_capability(capability)` | *Get tri-state support for an account-level capability.*
+`async_get_basic_charging_mode(charger, boost_state=None)` | *Get scheduled, always-on, or timed-boost basic mode across both APIs.*
 `async_set_basic_charging_mode(charger, mode)` | *Set persistent scheduled or always-on Home basic mode.*
 `async_get_charger_state(charger)` | *Get normalized state, last-seen time, legacy RSSI, and source-qualified connection quality.*
 `async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
-`async_get_charger_legacy_schedules(charger)` | *Get legacy schedules where structurally applicable.*
+`async_get_charger_legacy_schedules(charger, refresh=False)` | *Get the discovery schedule snapshot without a duplicate request, with explicit refresh available.*
 `async_get_charger_manual_schedules(charger)` | *Get Home manual/basic schedules.*
 `async_replace_charger_manual_schedules(charger, schedules)` | *Replace Home manual/basic schedules.*
 `async_get_charger_smart_charging(charger)` | *Get delegated smart-charging configuration.*
@@ -216,7 +244,17 @@ Method | Description
 `async_get_completed_charge_sessions(chargers, from_date, to_date)` | *Get grouped authoritative completed history with confirmed-absence fallback.*
 `async_get_live_charge_sessions(chargers)` | *Get grouped legacy provisional/live sessions independently.*
 `async_get_account_reward_wallet()` | *Get reward wallet with account capability semantics.*
-`async_credentials_verified()` | *Verify that the credentials we have can pull _atleast_ one Pod* - Returns `bool`.
+
+#### Legacy Pod API
+
+These endpoint-specific compatibility methods use legacy `Pod` models and
+legacy response types. Existing consumers can continue to use them, but new
+integrations should prefer the canonical methods above when an equivalent is
+available.
+
+Method | Description
+---|---
+`async_credentials_verified()` | *Verify that the credentials can retrieve at least one legacy Pod* - Returns `bool`.
 `async_get_all_pods(includes=[])` | *Get all pods from a user's account* - Returns a list of `Pod` objects. Optional `includes` can be used to change what will be returned. Defaults to all data.
 `async_get_pods(perpage=5, page=2, includes=[])` | *Get pods from a user's account* - Returns a list of `Pod` objects. `perpage` can be 'all', or a number. Can get additional pages with `page` attribute. `includes` is a list of additional information pulled for the Pod. Pass an empty list to `includes` for minimal information or `None` for full data (defaults to `None`).
 `async_get_pod(pod_id=1234)` | *Gets an individual pod* - Returns a single `Pod`. *_NOTE: The Pod Point API does not support a single-pod return so this method gets all pods and filters._*
@@ -231,6 +269,15 @@ Method | Description
 `async_set_charge_mode_manual(pod=_Pod_)` | *Set a pod to manual charge mode* - Returns a boolean.
 `async_set_charge_mode_smart(pod=_Pod_)` | *Set a pod to smart charge mode* - Returns a boolean.
 `async_get_connectivity_status(pod=_Pod_)` | *Get the current connection status for a pod* - Returns a `ConnectivityStatus` object.
+
+#### Home API
+
+These endpoint-specific methods use newer Home API `Charger` models and Home
+response types. They remain available for consumers that need functionality or
+wire-level detail not represented by the canonical API.
+
+Method | Description
+---|---
 `async_get_chargers()` | *Get chargers from the newer charger API* - Returns a list of `Charger` objects.
 `async_get_charger(ppid="ABC-123456")` | *Get a charger by PPID* - Returns a `Charger` object or `None`.
 `async_get_connectivity_status_v2(charger=_Charger_)` | *Get compact connectivity and charging state for a charger* - Returns a `ConnectivityStatusV2` object.

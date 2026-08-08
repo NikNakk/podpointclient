@@ -15,11 +15,12 @@ from podpointclient.client import PodPointClient
 from podpointclient.connectivity_status import ConnectivityStatus
 from podpointclient.connectivity_status_v2 import ConnectivityStatusV2
 from podpointclient.domain import (
-    AccountCapability, BasicChargingMode, CapabilitySupport, ChargeSession,
+    AccountCapability, BasicChargingMode, BoostState, CapabilitySupport, ChargeSession,
     ChargeSessionSource, ChargerCapability, ChargerDomain, ChargerIdentityError,
     ChargerSource, ConnectionQualityDiagnostic, StateValue,
-    boost_state_from_home, boost_state_from_legacy, charger_ref_from_charger,
-    charger_ref_from_pod, charge_session_from_home,
+    basic_charging_mode_from_boost, boost_state_from_home,
+    boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
+    charge_session_from_home,
     charge_session_from_legacy, normalize_state, reconcile_charge_sessions,
 )
 from podpointclient.errors import (
@@ -368,9 +369,7 @@ async def test_schedule_smart_preferences_tariff_and_lock_operations():
     legacy_model = legacy_pod()
     home = charger_ref_from_charger(home_model)
     legacy = charger_ref_from_pod(legacy_model)
-    refreshed_pod = legacy_model
-    refreshed_pod.charge_schedules = ["legacy schedule"]
-    client.async_get_pod.return_value = refreshed_pod
+    legacy_model.charge_schedules = ["legacy schedule"]
     client.async_get_manual_schedules.return_value = ["manual schedule"]
     client.async_set_manual_schedules.return_value = ["saved schedule"]
     client.async_get_delegated_control.return_value = "control"
@@ -382,6 +381,7 @@ async def test_schedule_smart_preferences_tariff_and_lock_operations():
     domain = ChargerDomain(client)
 
     assert await domain.async_get_legacy_schedules(legacy) == ["legacy schedule"]
+    client.async_get_pod.assert_not_awaited()
     assert await domain.async_get_manual_schedules(home) == ["manual schedule"]
     assert await domain.async_replace_manual_schedules(home, ["input"]) == ["saved schedule"]
     assert await domain.async_get_smart_charging(home) == "control"
@@ -394,6 +394,85 @@ async def test_schedule_smart_preferences_tariff_and_lock_operations():
     client.async_get_delegated_control.assert_awaited_with(home_model)
     client.async_get_tariffs.assert_awaited_with(home_model)
     client.async_get_remote_lock.assert_awaited_with(home_model)
+
+
+@pytest.mark.asyncio
+async def test_legacy_schedules_distinguish_empty_unsupported_and_transient():
+    client = AsyncMock()
+    legacy = legacy_ref()
+    domain = ChargerDomain(client)
+
+    assert await domain.async_get_legacy_schedules(legacy) == []
+    assert legacy.capability(ChargerCapability.LEGACY_SCHEDULING) is (
+        CapabilitySupport.SUPPORTED
+    )
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_legacy_schedules(home_ref())
+    client.async_get_pod.side_effect = APIError(500, "temporary")
+    fresh_legacy = legacy_ref("LEGACY-2")
+    with pytest.raises(APIError):
+        await domain.async_get_legacy_schedules(fresh_legacy, refresh=True)
+    assert fresh_legacy.capability(ChargerCapability.LEGACY_SCHEDULING) is (
+        CapabilitySupport.UNKNOWN
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_legacy_schedule_confirmed_absence_is_retained(status):
+    client = AsyncMock()
+    client.async_get_pod.side_effect = APIError(status, "missing")
+    legacy = legacy_ref()
+    domain = ChargerDomain(client)
+
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_legacy_schedules(legacy, refresh=True)
+    with pytest.raises(UnsupportedCapabilityError):
+        await domain.async_get_legacy_schedules(legacy, refresh=True)
+
+    assert client.async_get_pod.await_count == 1
+    assert legacy.capability(ChargerCapability.LEGACY_SCHEDULING) is (
+        CapabilitySupport.UNSUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_schedule_snapshot_refreshes_on_rediscovery():
+    client = AsyncMock()
+    client.async_get_chargers.side_effect = APIError(404, "not available")
+    first_pod = legacy_pod()
+    second_pod = legacy_pod()
+    first_pod.charge_schedules = ["old"]
+    second_pod.charge_schedules = ["new"]
+    client.async_get_all_pods.side_effect = [[first_pod], [second_pod]]
+    domain = ChargerDomain(client)
+
+    first = (await domain.async_discover_chargers())[0]
+    second = (await domain.async_discover_chargers())[0]
+
+    assert await domain.async_get_legacy_schedules(first) == ["old"]
+    assert await domain.async_get_legacy_schedules(second) == ["new"]
+    assert client.async_get_all_pods.await_count == 2
+    client.async_get_pod.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_legacy_schedule_explicit_refresh_is_available():
+    client = AsyncMock()
+    stale = legacy_pod()
+    current = legacy_pod()
+    stale.charge_schedules = ["old"]
+    current.charge_schedules = ["new"]
+    client.async_get_pod.return_value = current
+    domain = ChargerDomain(client)
+
+    schedules = await domain.async_get_legacy_schedules(
+        charger_ref_from_pod(stale), refresh=True
+    )
+
+    assert schedules == ["new"]
+    client.async_get_pod.assert_awaited_once_with(stale.id)
 
 
 @pytest.mark.asyncio
@@ -563,22 +642,42 @@ async def test_client_exposes_new_domain_delegates():
     domain = AsyncMock(spec=ChargerDomain)
     domain.async_charger_credentials_verified.return_value = True
     domain.async_get_basic_charging_mode.return_value = BasicChargingMode.SCHEDULED
+    domain.async_get_legacy_schedules.return_value = []
     domain.async_get_completed_charge_sessions.return_value = {"HOME": []}
     domain.async_get_live_charge_sessions.return_value = {"HOME": []}
+    domain.account_capability.return_value = CapabilitySupport.UNKNOWN
     client = object.__new__(PodPointClient)
     client._domain = domain
     chargers = [home_ref("HOME")]
+    boost = BoostState("HOME", active=False, timed=False)
 
     assert await client.async_charger_credentials_verified()
-    assert await client.async_get_basic_charging_mode(chargers[0]) is (
+    assert client.account_capability(AccountCapability.LEGACY_CHARGES) is (
+        CapabilitySupport.UNKNOWN
+    )
+    assert await client.async_get_basic_charging_mode(
+        chargers[0], boost_state=boost
+    ) is (
         BasicChargingMode.SCHEDULED
     )
+    assert await client.async_get_charger_legacy_schedules(
+        chargers[0], refresh=True
+    ) == []
     assert await client.async_get_completed_charge_sessions(
         chargers, date(2026, 8, 1), date(2026, 8, 2)
     ) == {"HOME": []}
     assert await client.async_get_live_charge_sessions(
         chargers, per_page=10
     ) == {"HOME": []}
+    domain.account_capability.assert_called_once_with(
+        AccountCapability.LEGACY_CHARGES
+    )
+    domain.async_get_basic_charging_mode.assert_awaited_once_with(
+        chargers[0], boost_state=boost
+    )
+    domain.async_get_legacy_schedules.assert_awaited_once_with(
+        chargers[0], refresh=True
+    )
 
 
 @pytest.mark.asyncio
@@ -1131,6 +1230,61 @@ async def test_get_basic_charging_mode(override, expected):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("override", "expected"), [
+    (None, BasicChargingMode.SCHEDULED),
+    ({"ppid": "LEGACY", "requested_at": "2026-08-01T10:00:00Z",
+      "received_at": "2026-08-01T10:00:01Z", "ends_at": None},
+     BasicChargingMode.ALWAYS_ON),
+    ({"ppid": "LEGACY", "requested_at": "2026-08-01T10:00:00Z",
+      "received_at": "2026-08-01T10:00:01Z",
+      "ends_at": "2099-08-01T11:00:00Z"}, BasicChargingMode.TIMED_BOOST),
+])
+async def test_get_basic_charging_mode_from_legacy_override(override, expected):
+    client = AsyncMock()
+    client.async_get_charge_override.return_value = (
+        ChargeOverride(override) if override else None
+    )
+    charger = legacy_ref("LEGACY")
+
+    assert await ChargerDomain(client).async_get_basic_charging_mode(
+        charger
+    ) is expected
+    client.async_get_charger_charge_overrides.assert_not_awaited()
+    assert charger.capability(ChargerCapability.BASIC_CHARGING_MODE) is (
+        CapabilitySupport.SUPPORTED
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("state", "expected"), [
+    (BoostState("HOME", active=False, timed=False), BasicChargingMode.SCHEDULED),
+    (BoostState("HOME", active=True, timed=False), BasicChargingMode.ALWAYS_ON),
+    (BoostState("HOME", active=True, timed=True), BasicChargingMode.TIMED_BOOST),
+])
+async def test_basic_mode_reuses_canonical_boost_without_request(state, expected):
+    client = AsyncMock()
+    charger = home_ref("HOME")
+
+    assert basic_charging_mode_from_boost(state) is expected
+    assert await ChargerDomain(client).async_get_basic_charging_mode(
+        charger, boost_state=state
+    ) is expected
+    client.async_get_charger_charge_overrides.assert_not_awaited()
+    client.async_get_charge_override.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_basic_mode_rejects_boost_for_another_charger():
+    client = AsyncMock()
+    with pytest.raises(RequestValidationError):
+        await ChargerDomain(client).async_get_basic_charging_mode(
+            home_ref("HOME"),
+            boost_state=BoostState("OTHER", active=False, timed=False),
+        )
+    client.async_get_charger_charge_overrides.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [
     BasicChargingMode.ALWAYS_ON, BasicChargingMode.SCHEDULED,
 ])
@@ -1199,7 +1353,7 @@ async def test_basic_mode_confirmed_absence_is_typed_and_retained(status):
 
 
 @pytest.mark.asyncio
-async def test_basic_mode_transient_error_and_structural_legacy_support():
+async def test_basic_mode_transient_error_and_legacy_set_is_unsupported():
     client = AsyncMock()
     client.async_get_charger_charge_overrides.side_effect = APIError(500, "failed")
     home = home_ref()
@@ -1209,5 +1363,12 @@ async def test_basic_mode_transient_error_and_structural_legacy_support():
         CapabilitySupport.UNKNOWN
     )
 
+    legacy = legacy_ref()
     with pytest.raises(UnsupportedCapabilityError):
-        await ChargerDomain(client).async_get_basic_charging_mode(legacy_ref())
+        await ChargerDomain(client).async_set_basic_charging_mode(
+            legacy, BasicChargingMode.ALWAYS_ON
+        )
+    assert legacy.capability(ChargerCapability.BASIC_CHARGING_MODE) is (
+        CapabilitySupport.UNKNOWN
+    )
+    client.async_set_charger_charge_mode_always_on.assert_not_awaited()

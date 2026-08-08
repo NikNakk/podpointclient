@@ -6,9 +6,10 @@ from .domain import (
     ChargeSession, ChargeSessionSource, ChargerCapability, ChargerDomain,
     ChargerIdentityError, ChargerRef, ChargerSource, ChargerState,
     ConnectionQualityDiagnostic, NormalizedStateValue, StateValue,
-    boost_state_from_home, boost_state_from_legacy, charger_ref_from_charger,
-    charger_ref_from_pod, charge_session_from_home, charge_session_from_legacy,
-    normalize_state, reconcile_charge_sessions,
+    basic_charging_mode_from_boost, boost_state_from_home,
+    boost_state_from_legacy, charger_ref_from_charger, charger_ref_from_pod,
+    charge_session_from_home, charge_session_from_legacy, normalize_state,
+    reconcile_charge_sessions,
 )
 from .errors import UnsupportedCapabilityError
 
@@ -18,8 +19,9 @@ __all__ = [
     "ChargerCapability", "ChargerDomain", "ChargerIdentityError", "ChargerRef",
     "ChargerSource", "ChargerState", "ConnectionQualityDiagnostic",
     "NormalizedStateValue", "PodPointClient", "StateValue",
-    "UnsupportedCapabilityError", "boost_state_from_home",
-    "boost_state_from_legacy", "charger_ref_from_charger", "charger_ref_from_pod",
+    "UnsupportedCapabilityError", "basic_charging_mode_from_boost",
+    "boost_state_from_home", "boost_state_from_legacy", "charger_ref_from_charger",
+    "charger_ref_from_pod",
     "charge_session_from_home", "charge_session_from_legacy", "normalize_state",
     "reconcile_charge_sessions",
 ]

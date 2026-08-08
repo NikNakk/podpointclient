@@ -1,5 +1,14 @@
 # Pod Point Client Changelog
 
+## v1.7.0b9
+
+* Avoid a redundant legacy Pod request by returning schedules retained by
+  charger discovery, while retaining explicit and rediscovery-based refreshes.
+* Expose tri-state account capability observations directly on
+  `PodPointClient`.
+* Derive canonical basic charging mode from Home or legacy `BoostState`, with
+  optional state reuse to avoid duplicate override requests.
+
 ## v1.7.0b8
 
 * Exclude unfinished Home-history records from canonical completed-session

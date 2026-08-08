@@ -145,17 +145,25 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
         """Get canonical active/inactive boost state."""
         return await self.domain.async_get_active_boost(charger)
 
-    async def async_get_basic_charging_mode(self, charger):
-        """Get canonical persistent/basic charging mode."""
-        return await self.domain.async_get_basic_charging_mode(charger)
+    def account_capability(self, capability):
+        """Return tri-state support for an account-level capability."""
+        return self.domain.account_capability(capability)
+
+    async def async_get_basic_charging_mode(self, charger, boost_state=None):
+        """Get canonical basic mode, optionally reusing canonical boost state."""
+        return await self.domain.async_get_basic_charging_mode(
+            charger, boost_state=boost_state
+        )
 
     async def async_set_basic_charging_mode(self, charger, mode):
         """Set scheduled or always-on basic charging through the domain API."""
         return await self.domain.async_set_basic_charging_mode(charger, mode)
 
-    async def async_get_charger_legacy_schedules(self, charger):
-        """Get legacy schedules without unwrapping a charger reference."""
-        return await self.domain.async_get_legacy_schedules(charger)
+    async def async_get_charger_legacy_schedules(self, charger, *, refresh=False):
+        """Get discovery schedules, optionally refreshing their legacy Pod."""
+        return await self.domain.async_get_legacy_schedules(
+            charger, refresh=refresh
+        )
 
     async def async_set_charger_legacy_schedule(self, charger, enabled):
         """Set the legacy all-week schedule through the domain API."""
