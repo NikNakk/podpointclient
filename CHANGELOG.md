@@ -4,6 +4,8 @@
 
 * Resolve live legacy charge sessions through a pod's unit ID while retaining
   pod-ID matching for completed legacy history.
+* Publish validated wheel and source artifacts as a GitHub prerelease after a
+  successful PyPI release.
 
 ## v1.7.0b5
 
