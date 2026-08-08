@@ -51,9 +51,6 @@ async def describe_firmware(client: PodPointClient, charger) -> None:
     if support is CapabilitySupport.UNSUPPORTED:
         print("  Firmware status is unsupported")
         return
-    if support is CapabilitySupport.UNKNOWN:
-        print("  Firmware status is not yet determined")
-        return
 
     try:
         firmwares = await client.async_get_charger_firmware(charger)
@@ -79,9 +76,9 @@ async def demonstrate_boost(
         return
     if (
         charger.capability(ChargerCapability.TIMED_BOOST)
-        is not CapabilitySupport.SUPPORTED
+        is CapabilitySupport.UNSUPPORTED
     ):
-        print("Timed boosts are not confirmed as supported for this charger")
+        print("Timed boosts are unsupported for this charger")
         return
 
     print(f"Starting a {boost_minutes}-minute boost for {charger.ppid}")
@@ -126,8 +123,6 @@ async def main(
             print(f"  Unit ID: {charger.unit_id or 'unknown'}")
             print(f"  Timezone: {charger.timezone or 'unknown'}")
             print(f"  Linked/commissioned: {charger.linked_at or 'unknown'}")
-            # Source is useful for diagnostics, but no operation branches on it.
-            print(f"  Diagnostic source: {charger.source.value}")
             describe_capabilities(charger)
             await describe_state(client, charger)
             await describe_firmware(client, charger)

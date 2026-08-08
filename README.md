@@ -31,29 +31,75 @@ they provide the same import package.
 ### Domain-level charger API
 
 For application code, the domain API provides stable charger identity,
-capabilities, state, and boost operations across both Pod Point wire APIs. It
-tries Home discovery first and uses the legacy Pod API only when Home discovery
-is confirmed absent (HTTP 404/410). It does not hide authentication, connection,
-rate-limit, or unexpected server failures.
+capabilities, normalized results, scheduling, smart charging, tariffs, history,
+and boost operations across both Pod Point wire APIs. It tries Home discovery
+first and uses the legacy Pod API only when Home discovery is confirmed absent
+(HTTP 404/410). Application code does not inspect `ChargerRef.source`, unwrap
+`ChargerRef.raw`, or select endpoint-specific methods.
 
 ```python
-from podpointclient import CapabilitySupport, ChargerCapability
+from datetime import date
+
+from podpointclient import (
+    CapabilitySupport, ChargerCapability, UnsupportedCapabilityError,
+)
 
 chargers = await client.async_discover_chargers()
 charger = chargers[0]  # ChargerRef; PPID is its stable identity
 
-if charger.capability(ChargerCapability.TIMED_BOOST) is CapabilitySupport.SUPPORTED:
-    await client.async_start_boost(charger, hours=1)
+try:
     state = await client.async_get_charger_state(charger)
-    await client.async_stop_boost(charger)
+    boost = await client.async_get_active_boost(charger)
+    tariffs = await client.async_get_charger_tariffs(charger)
+    preferences = await client.async_get_charger_preferences(charger)
+    remote_lock = await client.async_get_charger_remote_lock(charger)
+    history = await client.async_get_charger_charge_history(
+        charger, date(2026, 8, 1), date(2026, 8, 31)
+    )
+except UnsupportedCapabilityError as error:
+    print(f"{error.capability.value} is unavailable")
+
+if charger.capability(ChargerCapability.TIMED_BOOST) is not CapabilitySupport.UNSUPPORTED:
+    try:
+        await client.async_start_boost(charger, hours=1)  # UNKNOWN is probed
+        await client.async_stop_boost(charger)
+    except UnsupportedCapabilityError:
+        pass
 ```
 
-Capabilities explicitly distinguish `SUPPORTED`, `UNSUPPORTED`, and `UNKNOWN`
-(not yet determined or temporarily unavailable). A domain operation with no
-meaningful equivalent raises `UnsupportedCapabilityError`; 404/410 responses
-from capability endpoints are translated to the same typed error. Unknown state
-spellings are retained in `NormalizedStateValue.raw` and normalize safely to
-`StateValue.UNKNOWN`.
+Capability observations live in memory on the client's stable `domain` object:
+
+- `UNKNOWN` means not yet probed or temporarily unavailable. Calls are allowed.
+- A successful call changes the capability to `SUPPORTED`.
+- HTTP 404/410 changes it to `UNSUPPORTED` and raises
+  `UnsupportedCapabilityError` carrying the PPID and capability. Later calls
+  fail immediately without another endpoint request.
+- Authentication, transport, rate-limit, and unexpected API errors leave the
+  observation unchanged and retain their original exception type.
+
+`ChargerRef.capabilities` is an immutable snapshot; query the latest observation
+with `charger.capability(...)`. Unknown state spellings retain their original
+wire value and normalize safely to `StateValue.UNKNOWN`.
+
+Delegated vehicles, charge history, and the reward wallet are account-level
+features. Their support is exposed through
+`client.domain.account_capability(AccountCapability.X)`. Bulk grouping methods
+fetch account data once and associate records by canonical PPID:
+
+```python
+vehicle_groups = await client.async_get_domain_delegated_vehicle_groups()
+history_groups = await client.async_get_domain_charge_history_groups(
+    chargers, date(2026, 8, 1), date(2026, 8, 31)
+)
+wallet = await client.async_get_account_reward_wallet()
+```
+
+Boost reads return `BoostState`; charge history returns `ChargeSession`. These
+small canonical models normalize the fields that differ between APIs while
+retaining the raw source response for diagnostics. Tariffs, manual schedules,
+delegated controls, preferences, remote locks, vehicles, and firmware continue
+to return their focused endpoint models because those feature schemas do not
+need false cross-API equivalents.
 
 The endpoint-specific API remains fully supported. Existing `Pod`, `Charger`,
 `ConnectivityStatusV2`, `ChargerChargeOverride`, and all existing client methods
@@ -66,8 +112,21 @@ Method | Description
 `async_discover_chargers()` | *Discover canonical `ChargerRef` objects through Home-first, confirmed-unsupported fallback.*
 `async_start_boost(charger, hours=0, minutes=0, seconds=0)` | *Start a timed boost without selecting a wire API.*
 `async_stop_boost(charger)` | *Stop active boosts without selecting a wire API.*
+`async_get_active_boost(charger)` | *Get canonical active, timed, or open-ended `BoostState`.*
 `async_get_charger_state(charger)` | *Get normalized connectivity and charging state.*
 `async_get_charger_firmware(charger)` | *Get firmware through the legacy unit endpoint for any canonical charger.*
+`async_get_charger_legacy_schedules(charger)` | *Get legacy schedules where structurally applicable.*
+`async_get_charger_manual_schedules(charger)` | *Get Home manual/basic schedules.*
+`async_replace_charger_manual_schedules(charger, schedules)` | *Replace Home manual/basic schedules.*
+`async_get_charger_smart_charging(charger)` | *Get delegated smart-charging configuration.*
+`async_set_domain_smart_charging(charger, enabled)` | *Enable or disable delegated smart charging.*
+`async_get_charger_preferences(charger)` | *Get smart-charging preferences.*
+`async_set_charger_max_price(charger, max_price)` | *Update the smart-charging maximum price.*
+`async_get_charger_tariffs(charger)` | *Get charger tariffs.*
+`async_get_charger_remote_lock(charger)` | *Get remote lock/off-mode state.*
+`async_get_charger_delegated_vehicles(charger)` | *Get account records associated with one PPID.*
+`async_get_charger_charge_history(charger, from_date, to_date)` | *Get canonical `ChargeSession` records.*
+`async_get_account_reward_wallet()` | *Get reward wallet with account capability semantics.*
 `async_credentials_verified()` | *Verify that the credentials we have can pull _atleast_ one Pod* - Returns `bool`.
 `async_get_all_pods(includes=[])` | *Get all pods from a user's account* - Returns a list of `Pod` objects. Optional `includes` can be used to change what will be returned. Defaults to all data.
 `async_get_pods(perpage=5, page=2, includes=[])` | *Get pods from a user's account* - Returns a list of `Pod` objects. `perpage` can be 'all', or a number. Can get additional pages with `page` attribute. `includes` is a list of additional information pulled for the Pod. Pass an empty list to `includes` for minimal information or `None` for full data (defaults to `None`).

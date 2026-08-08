@@ -1,5 +1,17 @@
 # Pod Point Client Changelog
 
+## v1.7.0b3
+
+* Retain runtime charger and account capability observations on a stable domain
+  instance, with immutable public capability snapshots.
+* Apply centralized 404/410 unsupported handling to every domain operation.
+* Add domain operations for overrides, schedules, delegated smart charging,
+  preferences, tariffs, remote lock, vehicles, history, and reward wallet.
+* Add canonical `BoostState` and `ChargeSession` results and bulk account
+  grouping by canonical PPID.
+* Validate that every canonical charger has a non-empty PPID and normalize the
+  complete known state vocabulary.
+
 ## v1.7.0b2
 
 * Add a backward-compatible domain charger facade with canonical PPID identity.

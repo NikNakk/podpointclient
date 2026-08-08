@@ -78,7 +78,7 @@ VALID_WEEKDAYS = {
 }
 VALID_STATS_INTERVALS = {"day", "week", "month", "year"}
 
-class PodPointClient:
+class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-public-methods
     """API Client for communicating with Pod Point."""
 
     def __init__(
@@ -102,11 +102,14 @@ class PodPointClient:
         )
         self.api_wrapper = APIWrapper(session=self._session)
         self.include_timestamp = include_timestamp
+        self._domain = None
 
     @property
     def domain(self) -> ChargerDomain:
         """Return the high-level, API-independent charger facade."""
-        return ChargerDomain(self)
+        if self._domain is None:
+            self._domain = ChargerDomain(self)
+        return self._domain
 
     async def async_discover_chargers(self):
         """Discover canonical charger references using Home-first fallback."""
@@ -129,6 +132,80 @@ class PodPointClient:
     async def async_get_charger_firmware(self, charger):
         """Get firmware without selecting or adapting to a wire API model."""
         return await self.domain.async_get_firmware(charger)
+
+    async def async_get_active_boost(self, charger):
+        """Get canonical active/inactive boost state."""
+        return await self.domain.async_get_active_boost(charger)
+
+    async def async_get_charger_legacy_schedules(self, charger):
+        """Get legacy schedules without unwrapping a charger reference."""
+        return await self.domain.async_get_legacy_schedules(charger)
+
+    async def async_set_charger_legacy_schedule(self, charger, enabled):
+        """Set the legacy all-week schedule through the domain API."""
+        return await self.domain.async_set_legacy_schedule(charger, enabled)
+
+    async def async_get_charger_manual_schedules(self, charger):
+        """Get manual/basic schedules through the domain API."""
+        return await self.domain.async_get_manual_schedules(charger)
+
+    async def async_replace_charger_manual_schedules(self, charger, schedules):
+        """Replace manual/basic schedules through the domain API."""
+        return await self.domain.async_replace_manual_schedules(charger, schedules)
+
+    async def async_get_charger_smart_charging(self, charger):
+        """Get delegated smart-charging configuration."""
+        return await self.domain.async_get_smart_charging(charger)
+
+    async def async_set_domain_smart_charging(self, charger, enabled):
+        """Enable or disable delegated smart charging through the domain API."""
+        return await self.domain.async_set_smart_charging(charger, enabled)
+
+    async def async_get_charger_preferences(self, charger):
+        """Get smart-charging preferences through the domain API."""
+        return await self.domain.async_get_smart_charging_preferences(charger)
+
+    async def async_set_charger_max_price(self, charger, max_price):
+        """Update smart-charging maximum price through the domain API."""
+        return await self.domain.async_set_smart_charging_max_price(
+            charger, max_price
+        )
+
+    async def async_get_charger_tariffs(self, charger):
+        """Get tariffs through the domain API."""
+        return await self.domain.async_get_tariffs(charger)
+
+    async def async_get_charger_remote_lock(self, charger):
+        """Get remote lock/off-mode state through the domain API."""
+        return await self.domain.async_get_remote_lock(charger)
+
+    async def async_get_charger_delegated_vehicles(self, charger):
+        """Get account-level delegated vehicles associated with a charger."""
+        return await self.domain.async_get_delegated_vehicles(charger)
+
+    async def async_get_domain_delegated_vehicle_groups(self):
+        """Fetch delegated vehicles once and group them by canonical PPID."""
+        return await self.domain.async_get_delegated_vehicle_groups()
+
+    async def async_get_charger_charge_history(
+        self, charger, from_date: date, to_date: date
+    ):
+        """Get canonical account-history sessions associated with a charger."""
+        return await self.domain.async_get_charge_history(
+            charger, from_date, to_date
+        )
+
+    async def async_get_domain_charge_history_groups(
+        self, chargers, from_date: date, to_date: date
+    ):
+        """Fetch account history once and group canonical sessions by PPID."""
+        return await self.domain.async_get_charge_history_groups(
+            chargers, from_date, to_date
+        )
+
+    async def async_get_account_reward_wallet(self):
+        """Get reward wallet with account capability handling."""
+        return await self.domain.async_get_reward_wallet()
 
     async def async_credentials_verified(self) -> bool:
         """Perform a minimum call to verify we have working credentials and can get one Pod"""

@@ -2,15 +2,20 @@
 
 from .client import PodPointClient
 from .domain import (
-    CapabilitySupport, ChargerCapability, ChargerDomain, ChargerRef,
+    AccountCapability, BoostState, CapabilitySupport, ChargeSession,
+    ChargerCapability, ChargerDomain, ChargerIdentityError, ChargerRef,
     ChargerSource, ChargerState, NormalizedStateValue, StateValue,
-    charger_ref_from_charger, charger_ref_from_pod, normalize_state,
+    boost_state_from_home, boost_state_from_legacy, charger_ref_from_charger,
+    charger_ref_from_pod, charge_session_from_home, charge_session_from_legacy,
+    normalize_state,
 )
 from .errors import UnsupportedCapabilityError
 
 __all__ = [
-    "CapabilitySupport", "ChargerCapability", "ChargerDomain", "ChargerRef",
+    "AccountCapability", "BoostState", "CapabilitySupport", "ChargeSession",
+    "ChargerCapability", "ChargerDomain", "ChargerIdentityError", "ChargerRef",
     "ChargerSource", "ChargerState", "NormalizedStateValue", "PodPointClient",
-    "StateValue", "UnsupportedCapabilityError", "charger_ref_from_charger",
-    "charger_ref_from_pod", "normalize_state",
+    "StateValue", "UnsupportedCapabilityError", "boost_state_from_home",
+    "boost_state_from_legacy", "charger_ref_from_charger", "charger_ref_from_pod",
+    "charge_session_from_home", "charge_session_from_legacy", "normalize_state",
 ]
