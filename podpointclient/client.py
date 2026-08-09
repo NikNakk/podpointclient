@@ -60,7 +60,7 @@ from .errors import (
     ChargeModeTransitionError, ChargeOverrideValidationError,
     RequestValidationError
 )
-from .domain import ChargerDomain
+from .domain import ChargerDomain, ChargerSource
 
 TIMEOUT = 10
 
@@ -115,9 +115,11 @@ class PodPointClient:  # pylint: disable=too-many-instance-attributes,too-many-p
             self._domain = ChargerDomain(self)
         return self._domain
 
-    async def async_discover_chargers(self):
-        """Discover canonical charger references using Home-first fallback."""
-        return await self.domain.async_discover_chargers()
+    async def async_discover_chargers(
+        self, preferred_protocol: ChargerSource = ChargerSource.HOME
+    ):
+        """Discover canonical charger references using the preferred wire API."""
+        return await self.domain.async_discover_chargers(preferred_protocol)
 
     async def async_charger_credentials_verified(self) -> bool:
         """Verify access using Home-first domain charger discovery."""

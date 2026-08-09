@@ -74,6 +74,18 @@ if charger.capability(ChargerCapability.TIMED_BOOST) is not CapabilitySupport.UN
         pass
 ```
 
+Home is the default discovery protocol. Applications can temporarily prefer
+legacy-backed references when a Home endpoint is unreliable; fallback to Home
+still occurs if legacy discovery is confirmed absent:
+
+```python
+from podpointclient import ChargerSource
+
+chargers = await client.async_discover_chargers(
+    preferred_protocol=ChargerSource.LEGACY
+)
+```
+
 Capability observations live in memory on the client's stable `domain` object:
 
 - `UNKNOWN` means not yet probed or temporarily unavailable. Calls are allowed.
@@ -256,7 +268,7 @@ on its source.
 
 Method | Description
 ---|---
-`async_discover_chargers()` | *Discover canonical `ChargerRef` objects through Home-first, confirmed-unsupported fallback.*
+`async_discover_chargers(preferred_protocol=ChargerSource.HOME)` | *Discover canonical `ChargerRef` objects through the preferred wire API, with confirmed-unsupported fallback.*
 `async_charger_credentials_verified()` | *Verify charger access using domain Home-first discovery.*
 `async_start_boost(charger, hours=0, minutes=0, seconds=0)` | *Start a timed boost without selecting a wire API.*
 `async_stop_boost(charger)` | *Stop active boosts without selecting a wire API.*

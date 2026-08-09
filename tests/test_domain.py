@@ -79,6 +79,53 @@ async def test_home_first_discovery_multiple_chargers_and_retained_state():
 
 
 @pytest.mark.asyncio
+async def test_legacy_preferred_discovery_creates_legacy_refs_without_home_call():
+    client = AsyncMock()
+    client.async_get_all_pods.return_value = [legacy_pod("A"), legacy_pod("B")]
+
+    refs = await ChargerDomain(client).async_discover_chargers(
+        ChargerSource.LEGACY
+    )
+
+    assert [item.ppid for item in refs] == ["A", "B"]
+    assert all(item.source is ChargerSource.LEGACY for item in refs)
+    assert all(isinstance(item.raw, Pod) for item in refs)
+    client.async_get_chargers.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [404, 410])
+async def test_legacy_preference_falls_back_to_home_only_when_absent(status):
+    client = AsyncMock()
+    client.async_get_all_pods.side_effect = APIError(status, "omitted")
+    client.async_get_chargers.return_value = [home_charger()]
+
+    refs = await ChargerDomain(client).async_discover_chargers(
+        ChargerSource.LEGACY
+    )
+
+    assert refs[0].source is ChargerSource.HOME
+
+
+@pytest.mark.asyncio
+async def test_legacy_preference_does_not_mask_other_errors():
+    client = AsyncMock()
+    client.async_get_all_pods.side_effect = APIError(500, "failed")
+
+    with pytest.raises(APIError):
+        await ChargerDomain(client).async_discover_chargers(
+            ChargerSource.LEGACY
+        )
+    client.async_get_chargers.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_discovery_rejects_invalid_preferred_protocol():
+    with pytest.raises(TypeError, match="preferred_protocol"):
+        await ChargerDomain(AsyncMock()).async_discover_chargers("legacy")
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("status", [404, 410])
 async def test_discovery_falls_back_only_for_absent_home_endpoint(status):
     client = AsyncMock()
@@ -758,6 +805,7 @@ async def test_domain_credentials_verify_home_without_legacy_call():
 @pytest.mark.asyncio
 async def test_client_exposes_new_domain_delegates():
     domain = AsyncMock(spec=ChargerDomain)
+    domain.async_discover_chargers.return_value = [legacy_ref()]
     domain.async_charger_credentials_verified.return_value = True
     domain.async_get_basic_charging_mode.return_value = BasicChargingMode.SCHEDULED
     domain.async_get_schedules.return_value = ["schedule"]
@@ -771,6 +819,9 @@ async def test_client_exposes_new_domain_delegates():
     chargers = [home_ref("HOME")]
     boost = BoostState("HOME", active=False, timed=False)
 
+    discovered = await client.async_discover_chargers(ChargerSource.LEGACY)
+    assert discovered[0].source is ChargerSource.LEGACY
+    domain.async_discover_chargers.assert_awaited_once_with(ChargerSource.LEGACY)
     assert await client.async_charger_credentials_verified()
     assert client.account_capability(AccountCapability.LEGACY_CHARGES) is (
         CapabilitySupport.UNKNOWN

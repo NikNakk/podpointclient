@@ -1,5 +1,12 @@
 # Pod Point Client Changelog
 
+## v2.0.0b2
+
+* Allow charger discovery to prefer either the Home or legacy wire API through
+  `preferred_protocol`, while retaining confirmed-unsupported fallback.
+* Add a read-only diagnostic script which compares Home, legacy connectivity,
+  and legacy Pod snapshot charging state.
+
 ## v2.0.0b1
 
 * Add `ChargerSchedule`, a canonical schedule entry shared by the Home and

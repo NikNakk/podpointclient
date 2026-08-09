@@ -29,7 +29,7 @@ class ChargerIdentityError(ValueError):
 
 
 class ChargerSource(Enum):
-    """Wire API which supplied a charger reference (diagnostics only)."""
+    """Wire API used to create and operate a charger reference."""
 
     HOME = "home"
     LEGACY = "legacy"
@@ -553,28 +553,52 @@ class ChargerDomain:  # pylint: disable=too-many-public-methods
             )
         return self._charger_states[key]
 
-    async def async_discover_chargers(self) -> List[ChargerRef]:
-        """Discover via Home first, falling back only when it is unsupported."""
+    async def _discover_home_chargers(self) -> List[ChargerRef]:
+        """Create canonical references backed by Home Charger models."""
         get_chargers = getattr(self._client, "async_get_chargers", None)
-        if callable(get_chargers):
-            try:
-                chargers = await get_chargers()
-                return [
-                    charger_ref_from_charger(
-                        item, self._state(item.ppid, ChargerSource.HOME, item.unit_id)
-                    ) for item in chargers
-                ]
-            except NotImplementedError:
-                pass
-            except APIError as error:
-                if not is_unsupported_api_error(error):
-                    raise
-        pods = await self._client.async_get_all_pods()
+        if not callable(get_chargers):
+            raise NotImplementedError("Home charger discovery is unavailable")
+        chargers = await get_chargers()
+        return [
+            charger_ref_from_charger(
+                item, self._state(item.ppid, ChargerSource.HOME, item.unit_id)
+            ) for item in chargers
+        ]
+
+    async def _discover_legacy_chargers(self) -> List[ChargerRef]:
+        """Create canonical references backed by legacy Pod models."""
+        get_pods = getattr(self._client, "async_get_all_pods", None)
+        if not callable(get_pods):
+            raise NotImplementedError("Legacy Pod discovery is unavailable")
+        pods = await get_pods()
         return [
             charger_ref_from_pod(
                 item, self._state(item.ppid, ChargerSource.LEGACY, item.unit_id)
             ) for item in pods
         ]
+
+    async def async_discover_chargers(
+        self, preferred_protocol: ChargerSource = ChargerSource.HOME
+    ) -> List[ChargerRef]:
+        """Discover with an explicit preferred wire API and absent-only fallback."""
+        if not isinstance(preferred_protocol, ChargerSource):
+            raise TypeError("preferred_protocol must be a ChargerSource")
+
+        if preferred_protocol is ChargerSource.HOME:
+            preferred = self._discover_home_chargers
+            fallback = self._discover_legacy_chargers
+        else:
+            preferred = self._discover_legacy_chargers
+            fallback = self._discover_home_chargers
+
+        try:
+            return await preferred()
+        except NotImplementedError:
+            pass
+        except APIError as error:
+            if not is_unsupported_api_error(error):
+                raise
+        return await fallback()
 
     async def async_charger_credentials_verified(self) -> bool:
         """Verify credentials through Home-first canonical discovery."""
